@@ -1,0 +1,12 @@
+[package]
+name = "rfs_macros"
+version = "0.1.0"
+edition.workspace = true
+description = "Proc-macros for rfs_core"
+
+[lib]
+proc-macro = true
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
