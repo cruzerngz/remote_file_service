@@ -9,3 +9,9 @@ description = "Course project for CE4013 (Distributed Systems) AY2023 S2"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [workspace.dependencies]
+log = "0.4"
+futures = "0"
+serde = { version = "1", features = ["derive"] }
+
+# bin stuffs
+clap = { version = "4", features = ["derive"] }
