@@ -2,9 +2,8 @@
 #![allow(unused)]
 
 mod de;
-mod ser;
 mod err;
-
+mod ser;
 
 /// Serialize a data structure
 pub fn to_serialized_bytes<T: serde::Serialize>(value: &T) -> Vec<u8> {

@@ -9,6 +9,31 @@ pub struct RfsSerializer {
     output: Vec<u8>,
 }
 
+/// Impl serialize unsigned primitives
+macro_rules! serialize_unsigned {
+    ($fn_name: ident: $num_type: ty) => {
+        fn $fn_name(self, v: $num_type) -> Result<Self::Ok, Self::Error> {
+            self.serialize_u64(u64::from(v))
+        }
+    };
+}
+
+/// Impl serialize signed primitives
+macro_rules! serialize_signed {
+    ($fn_name: ident: $num_type: ty) => {
+        fn $fn_name(self, v: $num_type) -> Result<Self::Ok, Self::Error> {
+            self.serialize_i64(i64::from(v))
+        }
+    };
+}
+
+/// Writes the size of the byte slice and the data into a buffer
+fn write_bytes(buffer: &mut Vec<u8>, bytes: &[u8]) {
+    let len = bytes.len();
+    buffer.extend(len.to_be_bytes());
+    buffer.extend(bytes);
+}
+
 impl<'a> ser::Serializer for &'a mut RfsSerializer {
     type Ok = ();
 
@@ -32,56 +57,47 @@ impl<'a> ser::Serializer for &'a mut RfsSerializer {
         todo!()
     }
 
-    fn serialize_i8(self, v: i8) -> Result<Self::Ok, Self::Error> {
-        todo!()
-    }
-
-    fn serialize_i16(self, v: i16) -> Result<Self::Ok, Self::Error> {
-        todo!()
-    }
-
-    fn serialize_i32(self, v: i32) -> Result<Self::Ok, Self::Error> {
-        todo!()
-    }
+    serialize_signed! {serialize_i8: i8}
+    serialize_signed! {serialize_i16: i16}
+    serialize_signed! {serialize_i32: i32}
 
     fn serialize_i64(self, v: i64) -> Result<Self::Ok, Self::Error> {
-        todo!()
+        self.output.extend(v.to_be_bytes());
+        Ok(())
     }
 
-    fn serialize_u8(self, v: u8) -> Result<Self::Ok, Self::Error> {
-        todo!()
-    }
-
-    fn serialize_u16(self, v: u16) -> Result<Self::Ok, Self::Error> {
-        todo!()
-    }
-
-    fn serialize_u32(self, v: u32) -> Result<Self::Ok, Self::Error> {
-        todo!()
-    }
+    serialize_unsigned! {serialize_u8: u8}
+    serialize_unsigned! {serialize_u16: u16}
+    serialize_unsigned! {serialize_u32: u32}
 
     fn serialize_u64(self, v: u64) -> Result<Self::Ok, Self::Error> {
-        todo!()
+        self.output.extend(v.to_be_bytes());
+        Ok(())
     }
 
     fn serialize_f32(self, v: f32) -> Result<Self::Ok, Self::Error> {
-        todo!()
+        unimplemented!("serialization for floats are not supported in this lib")
     }
 
     fn serialize_f64(self, v: f64) -> Result<Self::Ok, Self::Error> {
-        todo!()
+        unimplemented!("serialization for floats are not supported in this lib")
     }
 
     fn serialize_char(self, v: char) -> Result<Self::Ok, Self::Error> {
-        todo!()
+        self.output.push(v as u8);
+        Ok(())
     }
 
     fn serialize_str(self, v: &str) -> Result<Self::Ok, Self::Error> {
-        todo!()
+        let str_bytes = v.as_bytes();
+        write_bytes(&mut self.output, str_bytes);
+
+        Ok(())
     }
 
     fn serialize_bytes(self, v: &[u8]) -> Result<Self::Ok, Self::Error> {
-        todo!()
+        write_bytes(&mut self.output, v);
+        Ok(())
     }
 
     fn serialize_none(self) -> Result<Self::Ok, Self::Error> {

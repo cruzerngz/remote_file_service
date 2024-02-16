@@ -1,14 +1,14 @@
-//! Implementation of [serde::de::Deserializer] for [RfsSerializer]
+//! Implementation of [serde::de::Deserializer] for [RfsDeserializer]
 
 use serde::de;
 /// This data structure contains the serialized bytes of any arbitrary data structure.
 ///
 /// Structs/enums to be deserialized need to derive [serde::Deserialize].
-pub struct RfsDesrializer<'de> {
+pub struct RfsDeserializer<'de> {
     output: &'de [u8],
 }
 
-impl<'de, 'a> de::Deserializer<'de> for &'a mut RfsDesrializer<'de> {
+impl<'de, 'a> de::Deserializer<'de> for &'a mut RfsDeserializer<'de> {
     type Error = crate::ser_de::err::Error;
 
     fn deserialize_any<V>(self, visitor: V) -> Result<V::Value, Self::Error>
