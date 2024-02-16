@@ -4,10 +4,10 @@ use quote::quote;
 use syn::{punctuated::Punctuated, ItemTrait};
 
 mod remote_message;
-mod remote_method_signature;
+pub(crate) mod remote_method_signature;
 
 #[proc_macro_attribute]
-pub fn remote_message_from_trait(
+pub fn remote_interface(
     attr: proc_macro::TokenStream,
     item: proc_macro::TokenStream,
 ) -> proc_macro::TokenStream {
@@ -44,7 +44,15 @@ pub fn remote_message_from_trait(
     });
 
     let derived_enums = methods
-        .map(|m| remote_message::derive_enum(ident.clone(), m.to_owned()))
+        .map(|m| {
+            let (enum_ident, tokens) = remote_message::derive_enum(ident.clone(), m.to_owned());
+
+            let remote_sig_derive =
+                remote_method_signature::derive(enum_ident, &format!("{}::{}", ident, m.sig.ident));
+
+            [tokens, remote_sig_derive]
+        })
+        .flatten()
         .collect::<proc_macro2::TokenStream>();
 
     derived_enums.into()

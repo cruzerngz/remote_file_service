@@ -1,31 +1,25 @@
 //! Logic for deriving the trait `RemoteMethodSignature`.
 //!
 
+use proc_macro2::Span;
 use quote::quote;
 use syn::{DeriveInput, ItemTrait};
 
-/// The input tokenstream should contain a trait definition.
-///
-/// The identifier should be some derived data structure from another macro.
-pub fn derive(identifier: syn::Ident, item: proc_macro::TokenStream) -> proc_macro::TokenStream {
-    let ItemTrait {
-        attrs,
-        vis,
-        unsafety,
-        auto_token,
-        restriction,
-        trait_token,
-        ident,
-        generics,
-        colon_token,
-        supertraits,
-        brace_token,
-        items,
-    } = syn::parse_macro_input!(item);
+const REMOTE_METHOD_SIG_TRAIT: &str = "RemoteMethodSignature";
+const REMOTE_METHOD_SIG_TRAIT_METHOD: &str = "remote_method_signature";
 
-    let trait_name = ident;
+/// Implement the trait `RemoteMethodSignature` with the given method signature.
+pub fn derive(identifier: syn::Ident, signature: &str) -> proc_macro2::TokenStream {
+    let trait_name = syn::Ident::new(REMOTE_METHOD_SIG_TRAIT, Span::call_site());
+    let trait_method = syn::Ident::new(REMOTE_METHOD_SIG_TRAIT_METHOD, Span::call_site());
 
-    // ItemTrait;
+    quote! {
+        impl #trait_name for #identifier {
+            fn #trait_method() -> &'static [u8] {
+                #signature.as_bytes()
+            }
+        }
 
-    quote! {}.into()
+    }
+    .into()
 }

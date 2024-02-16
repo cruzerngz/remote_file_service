@@ -10,8 +10,13 @@ use syn::{punctuated::Punctuated, token::Comma, Field};
 const VARIANT_REQUEST: &str = "Request";
 const VARIANT_RESPONSE: &str = "Response";
 
-/// Construct the enum
-pub fn derive_enum(trait_name: syn::Ident, trait_method: syn::TraitItemFn) -> proc_macro2::TokenStream {
+/// Construct the enum.
+///
+/// Returns the enum ident and the enum as a tokenstream.
+pub fn derive_enum(
+    trait_name: syn::Ident,
+    trait_method: syn::TraitItemFn,
+) -> (syn::Ident, proc_macro2::TokenStream) {
     let modified_method_ident = {
         let str = trait_method.sig.ident.to_string();
         let formatted_ident = camel_case_to_pascal_case(&str);
@@ -74,20 +79,17 @@ pub fn derive_enum(trait_name: syn::Ident, trait_method: syn::TraitItemFn) -> pr
         discriminant: None,
     };
 
-    // syn::DataEnum {
-    //     enum_token: syn::token::Enum {
-    //         span: trait_method.sig.ident.span(),
-    //     },
-    //     brace_token: Default::default(),
-    //     variants: [request_variant, response_variant].into_iter().collect(),
-    // }
+    let cloned_ident = modified_method_ident.clone();
 
-    quote! {
-        enum #modified_method_ident {
-            #request_variant,
-            #response_variant
-        }
-    }
+    (
+        cloned_ident,
+        quote! {
+            pub enum #modified_method_ident {
+                #request_variant,
+                #response_variant
+            }
+        },
+    )
 }
 
 /// Converts `camel_case` to `CamelCase`
