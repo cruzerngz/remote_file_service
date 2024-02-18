@@ -1,6 +1,9 @@
 //! Implementation of [serde::de::Deserializer] for [RfsDeserializer]
 
-use serde::de::{self, EnumAccess, MapAccess, SeqAccess};
+use serde::{
+    de::{self, EnumAccess, MapAccess, SeqAccess, VariantAccess},
+    Deserializer,
+};
 
 use crate::ser_de::consts;
 
@@ -142,10 +145,11 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut RfsDeserializer<'de> {
     where
         V: de::Visitor<'de>,
     {
-        let prefix = self.input.next_byte();
-        match prefix == consts::PREFIX_STR {
-            true => (),
-            false => return Err(super::err::Error::PrefixNotMatched(format!(""))),
+        // let next = self.input.peek().unwrap();
+        // println!("next byte: {} ({})", next, *next as char);
+
+        validate_bytes! {
+            self.input, consts::PREFIX_STR => Self::Error::PrefixNotMatched(format!("str prefix unable to be matched"))
         }
 
         let len = self.input.pop_size();
@@ -161,11 +165,15 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut RfsDeserializer<'de> {
     where
         V: de::Visitor<'de>,
     {
-        let prefix = self.input.next_byte();
-        match prefix == consts::PREFIX_STR {
-            true => (),
-            false => return Err(super::err::Error::PrefixNotMatched(format!(""))),
+        validate_bytes! {
+            self.input, consts::PREFIX_STR => Self::Error::PrefixNotMatched(format!("string prefix unable to be matched"))
         }
+
+        // let prefix = self.input.next_byte();
+        // match prefix == consts::PREFIX_STR {
+        //     true => (),
+        //     false => return Err(super::err::Error::PrefixNotMatched(format!(""))),
+        // }
 
         let len = self.input.pop_size();
         let str_bytes = self.input.next_bytes(len as usize, true);
@@ -266,6 +274,7 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut RfsDeserializer<'de> {
     where
         V: de::Visitor<'de>,
     {
+        // note that vecs and tuples have different delimiters
         validate_bytes! {
             self.input, consts::PREFIX_SEQ => Self::Error::PrefixNotMatched(format!(""))
         }
@@ -287,6 +296,7 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut RfsDeserializer<'de> {
     where
         V: de::Visitor<'de>,
     {
+        // note that tuples and vecs have different delimiters
         validate_bytes! {
             self.input, consts::PREFIX_SEQ_CONST => Self::Error::PrefixNotMatched(format!(""))
         }
@@ -351,18 +361,8 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut RfsDeserializer<'de> {
     where
         V: de::Visitor<'de>,
     {
-        let open_delim = self.input.next_byte();
-
-        match open_delim == consts::MAP_OPEN {
-            true => (),
-            false => {
-                return Err(crate::ser_de::err::Error::DelimiterNotFound(
-                    consts::MAP_OPEN as char,
-                ))
-            }
-        }
-
-        todo!()
+        // structs and maps use the same underlying logic
+        self.deserialize_map(visitor)
     }
 
     fn deserialize_enum<V>(
@@ -374,14 +374,26 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut RfsDeserializer<'de> {
     where
         V: de::Visitor<'de>,
     {
-        todo!()
+        // let next = self.input.peek().unwrap();
+        // println!("next byte: {} ({})", next, *next as char);
+
+        validate_bytes! {
+            self.input, consts::PREFIX_ENUM => Self::Error::PrefixNotMatched(format!("enum prefix unable to be matched"))
+        }
+
+        // let next = self.input.peek().unwrap();
+        // println!("next byte: {} ({})", next, *next as char);
+
+        let accessor = CollectionsAccessor::from_deserializer(self, 0);
+        visitor.visit_enum(accessor)
     }
 
     fn deserialize_identifier<V>(self, visitor: V) -> Result<V::Value, Self::Error>
     where
         V: de::Visitor<'de>,
     {
-        todo!()
+        // for now, identifiers are serialized directly
+        self.deserialize_str(visitor)
     }
 
     fn deserialize_ignored_any<V>(self, visitor: V) -> Result<V::Value, Self::Error>
@@ -442,9 +454,12 @@ impl<'arr> ByteViewer<'arr> {
         self.slice.get(self.offset)
     }
 
-    /// Takes the next 8 bytes and parses them into a [u64].
+    /// Takes the next 8 bytes and parses them into a [ByteSizePrefix].
     /// As most contiguous (variable len) collections have their sizes stored at the start,
     /// this is used to retrieve the size of the collection (in bytes) and advance the viewer.
+    ///
+    /// This can also be used to retrieve any primitive unsigned numeric type, as all numeric types are
+    /// promoted to 64-bits during serialization.
     pub fn pop_size(&mut self) -> ByteSizePrefix {
         const NUM_BYTES: usize = std::mem::size_of::<ByteSizePrefix>();
         let size_bytes = self.next_bytes_fixed::<NUM_BYTES>(true);
@@ -526,14 +541,42 @@ impl<'a, 'de> MapAccess<'de> for CollectionsAccessor<'a, 'de> {
     where
         K: de::DeserializeSeed<'de>,
     {
-        unimplemented!("deserialization implemented in next_entry_seed()")
+        if self.des.input.peek() == Some(&self.terminator) {
+            return Ok(None);
+        }
+
+        validate_bytes! {
+            self.des.input, consts::MAP_ENTRY_OPEN => Self::Error::DelimiterNotFound(
+                consts::MAP_ENTRY_OPEN as char,
+            )
+        }
+
+        seed.deserialize(&mut *self.des).map(Some)
+
+        // unimplemented!("deserialization implemented in next_entry_seed()")
     }
 
     fn next_value_seed<V>(&mut self, seed: V) -> Result<V::Value, Self::Error>
     where
         V: de::DeserializeSeed<'de>,
     {
-        unimplemented!("deserialization implemented in next_entry_seed()")
+        validate_bytes! {
+            self.des.input, consts::MAP_ENTRY_MID => Self::Error::DelimiterNotFound(
+                consts::MAP_ENTRY_MID as char,
+            )
+        }
+
+        let val = seed.deserialize(&mut *self.des);
+
+        validate_bytes! {
+            self.des.input, consts::MAP_ENTRY_CLOSE => Self::Error::DelimiterNotFound(
+                consts::MAP_ENTRY_CLOSE as char,
+            )
+        }
+
+        val
+
+        // unimplemented!("deserialization implemented in next_entry_seed()")
     }
 
     fn next_entry_seed<K, V>(
@@ -573,5 +616,56 @@ impl<'a, 'de> MapAccess<'de> for CollectionsAccessor<'a, 'de> {
         }
 
         Ok(Some((key, val)))
+    }
+}
+
+impl<'a, 'de> EnumAccess<'de> for CollectionsAccessor<'a, 'de> {
+    type Error = super::err::Error;
+
+    type Variant = Self;
+
+    fn variant_seed<V>(self, seed: V) -> Result<(V::Value, Self::Variant), Self::Error>
+    where
+        V: de::DeserializeSeed<'de>,
+    {
+        // get the variant number
+        // let variant_index = self.des.input.pop_size();
+
+        let val = seed.deserialize(&mut *self.des)?;
+
+        Ok((val, self))
+    }
+}
+
+impl<'a, 'de> VariantAccess<'de> for CollectionsAccessor<'a, 'de> {
+    type Error = super::err::Error;
+
+    fn unit_variant(self) -> Result<(), Self::Error> {
+        Ok(())
+    }
+
+    fn newtype_variant_seed<T>(self, seed: T) -> Result<T::Value, Self::Error>
+    where
+        T: de::DeserializeSeed<'de>,
+    {
+        seed.deserialize(self.des)
+    }
+
+    fn tuple_variant<V>(self, len: usize, visitor: V) -> Result<V::Value, Self::Error>
+    where
+        V: de::Visitor<'de>,
+    {
+        self.des.deserialize_tuple(len, visitor)
+    }
+
+    fn struct_variant<V>(
+        self,
+        fields: &'static [&'static str],
+        visitor: V,
+    ) -> Result<V::Value, Self::Error>
+    where
+        V: de::Visitor<'de>,
+    {
+        self.des.deserialize_map(visitor)
     }
 }

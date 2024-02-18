@@ -67,11 +67,40 @@ mod tests {
     #[test]
     fn test_ser_de_seq() {
         let seq = vec![100, 200, 300, 400];
-
         ser_de_loop(seq);
 
         let tup = (12, 100, 20000);
-
         ser_de_loop(tup);
+    }
+
+    /// Testing ser_de of structs
+    #[test]
+    fn test_ser_de_struct() {
+        let s = S {
+            item: false,
+            number: 10000,
+            s: "asd".to_string(),
+        };
+        ser_de_loop(s);
+    }
+
+    #[test]
+    fn test_ser_de_enum() {
+        #[derive(Debug, Serialize, Deserialize)]
+        enum E {
+            This,
+            That(bool),
+            WhatEver((i32, bool)),
+            IDontCare { a: bool, b: i8, c: String },
+        }
+
+        ser_de_loop(E::This);
+        ser_de_loop(E::That(false));
+        ser_de_loop(E::WhatEver((10, true)));
+        ser_de_loop(E::IDontCare {
+            a: true,
+            b: i8::MAX,
+            c: "Hello How are You".to_string(),
+        });
     }
 }

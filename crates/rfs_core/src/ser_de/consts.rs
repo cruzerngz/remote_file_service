@@ -40,8 +40,11 @@ pub const PREFIX_SEQ: u8 = 'v' as u8;
 /// `t` for tuples
 pub const PREFIX_SEQ_CONST: u8 = 't' as u8;
 
-/// `m` for map
+/// `m` for map and structs
 pub const PREFIX_MAP: u8 = 'm' as u8;
+
+/// `e` for enums
+pub const PREFIX_ENUM: u8 = 'e' as u8;
 
 // byte delimiters for
 // collections
