@@ -12,8 +12,8 @@ description = "Course project for CE4013 (Distributed Systems) AY2023 S2"
 log = "0.4"
 futures = "0"
 async-trait = "0"
-tokio = { version = "1", features = ["derive", "rt-multi-thread"] }
 serde = { version = "1", features = ["derive"] }
 
 # bin stuffs
+tokio = { version = "1", features = ["derive", "rt-multi-thread"] }
 clap = { version = "4", features = ["derive"] }

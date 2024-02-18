@@ -1,10 +1,21 @@
 //! Error implementations
 
 use serde::{de, ser};
+pub type SerDeResult<R> = Result<R, Error>;
+
+/// Serialization result
+pub type SerResult<R> = Result<R, Error>;
+/// Deserialization result
+pub type DeResult<R> = Result<R, Error>;
 
 /// Custom error object for this library
 #[derive(Debug)]
-pub enum Error {}
+pub enum Error {
+    /// Expected enclosing delimiters are not found.
+    DelimiterNotFound(char),
+    /// Type descriptor prefix does not match expected type
+    PrefixNotMatched(String),
+}
 
 impl std::error::Error for Error {}
 
