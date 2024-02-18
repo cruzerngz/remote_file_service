@@ -76,11 +76,11 @@ impl<'a> ser::Serializer for &'a mut RfsSerializer {
     }
 
     fn serialize_f32(self, v: f32) -> Result<Self::Ok, Self::Error> {
-        unimplemented!("serialization for floats are not supported in this lib")
+        unimplemented!("float serialization is not supported.")
     }
 
     fn serialize_f64(self, v: f64) -> Result<Self::Ok, Self::Error> {
-        unimplemented!("serialization for floats are not supported in this lib")
+        unimplemented!("float serialization is not supported.")
     }
 
     fn serialize_char(self, v: char) -> Result<Self::Ok, Self::Error> {
@@ -100,34 +100,42 @@ impl<'a> ser::Serializer for &'a mut RfsSerializer {
         Ok(())
     }
 
+    // none variants are serialized to 0b0000_0000
     fn serialize_none(self) -> Result<Self::Ok, Self::Error> {
-        todo!()
+        self.output.push(u8::MIN);
+        Ok(())
     }
 
+    // some variants are prefixed with 0b1111_1111
     fn serialize_some<T: ?Sized>(self, value: &T) -> Result<Self::Ok, Self::Error>
     where
         T: serde::Serialize,
     {
-        todo!()
+        self.output.push(u8::MAX);
+        value.serialize(self);
+
+        Ok(())
     }
 
     fn serialize_unit(self) -> Result<Self::Ok, Self::Error> {
-        todo!()
+        self.serialize_none()
     }
 
     fn serialize_unit_struct(self, name: &'static str) -> Result<Self::Ok, Self::Error> {
-        todo!()
+        self.serialize_none()
     }
 
+    // serialize the index of a unit variant
     fn serialize_unit_variant(
         self,
         name: &'static str,
         variant_index: u32,
         variant: &'static str,
     ) -> Result<Self::Ok, Self::Error> {
-        todo!()
+        self.serialize_u32(variant_index)
     }
 
+    // serialize the inner value
     fn serialize_newtype_struct<T: ?Sized>(
         self,
         name: &'static str,
@@ -136,9 +144,10 @@ impl<'a> ser::Serializer for &'a mut RfsSerializer {
     where
         T: serde::Serialize,
     {
-        todo!()
+        value.serialize(self)
     }
 
+    // serialize the index, then the inner variant
     fn serialize_newtype_variant<T: ?Sized>(
         self,
         name: &'static str,
@@ -149,15 +158,18 @@ impl<'a> ser::Serializer for &'a mut RfsSerializer {
     where
         T: serde::Serialize,
     {
-        todo!()
+        self.serialize_u32(variant_index);
+        value.serialize(self)
     }
 
     fn serialize_seq(self, len: Option<usize>) -> Result<Self::SerializeSeq, Self::Error> {
-        todo!()
+        self.output.push('[' as u8);
+        Ok(self)
     }
 
     fn serialize_tuple(self, len: usize) -> Result<Self::SerializeTuple, Self::Error> {
-        todo!()
+        self.serialize_u64(len as u64);
+        Ok(self)
     }
 
     fn serialize_tuple_struct(
@@ -165,7 +177,8 @@ impl<'a> ser::Serializer for &'a mut RfsSerializer {
         name: &'static str,
         len: usize,
     ) -> Result<Self::SerializeTupleStruct, Self::Error> {
-        todo!()
+        self.serialize_tuple(len);
+        Ok(self)
     }
 
     fn serialize_tuple_variant(
@@ -175,7 +188,9 @@ impl<'a> ser::Serializer for &'a mut RfsSerializer {
         variant: &'static str,
         len: usize,
     ) -> Result<Self::SerializeTupleVariant, Self::Error> {
-        todo!()
+        self.serialize_u32(variant_index);
+        self.serialize_tuple(len);
+        Ok(self)
     }
 
     fn serialize_map(self, len: Option<usize>) -> Result<Self::SerializeMap, Self::Error> {
