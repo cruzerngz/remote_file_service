@@ -3,33 +3,44 @@
 pub const OPTION_SOME_VARIANT: u8 = u8::MAX;
 pub const OPTION_NONE_VARIANT: u8 = u8::MIN;
 
+pub const BOOL_TRUE: u8 = u8::MAX;
+pub const BOOL_FALSE: u8 = u8::MIN;
+
 // types are prefixed with labels so that their type can be
 // inferred/asserted during deserialization.
 
-pub const BYTES_BOOL: &'static [u8] = "bool".as_bytes();
-pub const BYTES_BOOL_TRUE: &'static [u8] = "bool_t".as_bytes();
-pub const BYTES_BOOL_FALSE: &'static [u8] = "bool_f".as_bytes();
+/// `c` for condition
+pub const BYTES_BOOL: u8 = 'c' as u8;
 
-pub const BYTES_UNIT: &'static [u8] = "unit".as_bytes();
+/// `u` for unit
+pub const BYTES_UNIT: u8 = 'u' as u8;
 
-pub const BYTES_STR: &'static [u8] = "str".as_bytes();
+/// `s` for string
+pub const BYTES_STR: u8 = 's' as u8;
 
-pub const BYTES_BYTES: &'static [u8] = "bytes".as_bytes();
+/// `b` for bytes
+pub const BYTES_BYTES: u8 = 'b' as u8;
 
-pub const BYTES_OPTIONAL: &'static [u8] = "opt".as_bytes();
-pub const BYTES_NONE: &'static [u8] = "opt_n".as_bytes();
-pub const BYTES_SOME: &'static [u8] = "opt_s".as_bytes();
+/// `o` for option
+pub const BYTES_OPTIONAL: u8 = 'o' as u8;
 
 /// Prefix for numbers. All primitive numeric types are serialized as `u64` or `i64`,
 /// into big endian.
-pub const BYTES_NUM: &'static [u8] = "num".as_bytes();
+///
+/// `n` for numeric
+pub const BYTES_NUM: u8 = 'n' as u8;
 
-/// Prefix for sequences like vectors
-pub const BYTES_SEQ: &'static [u8] = "seq".as_bytes();
-/// Prefix for sequences like maps
-pub const BYTES_MAP: &'static [u8] = "map".as_bytes();
+/// `v` for vectors
+pub const BYTES_SEQ: u8 = 'v' as u8;
 
-// byte delimiters for collections
+/// `t` for tuples
+pub const BYTES_SEQ_CONST: u8 = 't' as u8;
+
+/// `m` for map
+pub const BYTES_MAP: u8 = 'm' as u8;
+
+// byte delimiters for
+// collections
 
 // sequences with an arbitrary number of elements
 pub const SEQ_OPEN: u8 = '[' as u8;
@@ -40,9 +51,13 @@ pub const SEQ_CONST_OPEN: u8 = '(' as u8;
 pub const SEQ_CONST_CLOSE: u8 = ')' as u8;
 
 // maps with an arbitrary number of elements
+// or structs
 pub const MAP_OPEN: u8 = '{' as u8;
 pub const MAP_CLOSE: u8 = '}' as u8;
 
+// these delimiters only apply to maps.
+// the bytes in a serialized struct do not have any delimiters between
+// each field.
 pub const MAP_ENTRY_OPEN: u8 = '<' as u8;
 pub const MAP_ENTRY_MID: u8 = '-' as u8;
 pub const MAP_ENTRY_CLOSE: u8 = '>' as u8;

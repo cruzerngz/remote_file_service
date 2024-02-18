@@ -59,22 +59,23 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut RfsDeserializer<'de> {
     where
         V: de::Visitor<'de>,
     {
-        let peeked = self.input.next_bytes(consts::BYTES_BOOL_FALSE.len(), false);
+        let prefix = self.input.next_byte();
 
-        match (
-            peeked.starts_with(consts::BYTES_BOOL_TRUE),
-            peeked.starts_with(consts::BYTES_BOOL_FALSE),
-        ) {
+        match prefix == consts::BYTES_BOOL {
+            true => (),
+            false => return Err(super::err::Error::PrefixNotMatched(format!("{}", prefix))),
+        }
+
+        let value = self.input.next_byte();
+
+        match (value == consts::BOOL_TRUE, value == consts::BOOL_FALSE) {
             (false, false) => {
+                // TODO: add new error variant, this variant should not be constructed here
                 (Err(super::err::Error::PrefixNotMatched(
                     "unable to match boolean prefixes".to_string(),
                 )))
             }
             (is_true, is_false) => {
-                self.input
-                    .advance(consts::BYTES_BOOL_TRUE.len())
-                    .expect("slice bounds should not be exceeded");
-
                 if is_true {
                     visitor.visit_bool(true)
                 } else if is_false {
@@ -141,8 +142,8 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut RfsDeserializer<'de> {
     where
         V: de::Visitor<'de>,
     {
-        let str_prefix = self.input.next_bytes(consts::BYTES_STR.len(), true);
-        match str_prefix.starts_with(consts::BYTES_STR) {
+        let prefix = self.input.next_byte();
+        match prefix == consts::BYTES_STR {
             true => (),
             false => return Err(super::err::Error::PrefixNotMatched(format!(""))),
         }
@@ -160,8 +161,8 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut RfsDeserializer<'de> {
     where
         V: de::Visitor<'de>,
     {
-        let str_prefix = self.input.next_bytes(consts::BYTES_STR.len(), true);
-        match str_prefix.starts_with(consts::BYTES_STR) {
+        let prefix = self.input.next_byte();
+        match prefix == consts::BYTES_STR {
             true => (),
             false => return Err(super::err::Error::PrefixNotMatched(format!(""))),
         }
@@ -200,10 +201,10 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut RfsDeserializer<'de> {
     where
         V: de::Visitor<'de>,
     {
-        let opt_prefix = self.input.next_bytes(consts::BYTES_OPTIONAL.len(), false);
+        let opt_prefix = self.input.next_byte();
 
-        match opt_prefix.starts_with(consts::BYTES_OPTIONAL) {
-            true => self.input.advance(consts::BYTES_OPTIONAL.len()).unwrap(),
+        match opt_prefix == consts::BYTES_OPTIONAL {
+            true => (),
             false => {
                 return Err(super::err::Error::PrefixNotMatched(format!(
                     "expected option prefix ({:?}), found {:?}",
@@ -226,13 +227,10 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut RfsDeserializer<'de> {
     where
         V: de::Visitor<'de>,
     {
-        let unit_prefix = self.input.next_bytes(consts::BYTES_UNIT.len(), false);
+        let unit_prefix = self.input.next_byte();
 
-        match unit_prefix.starts_with(consts::BYTES_UNIT) {
-            true => {
-                self.input.advance(consts::BYTES_UNIT.len());
-                visitor.visit_unit()
-            }
+        match unit_prefix == consts::BYTES_UNIT {
+            true => visitor.visit_unit(),
             false => Err(crate::ser_de::err::Error::PrefixNotMatched(format!(
                 "expection unit prefix ({:?}), found {:?}",
                 consts::BYTES_UNIT,

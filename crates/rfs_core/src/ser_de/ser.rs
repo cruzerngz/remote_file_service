@@ -67,9 +67,12 @@ impl<'a> ser::Serializer for &'a mut RfsSerializer {
     type SerializeStructVariant = Self;
 
     fn serialize_bool(self, v: bool) -> Result<Self::Ok, Self::Error> {
+
+        self.output.push(consts::BYTES_BOOL);
+
         match v {
-            true => self.output.extend(consts::BYTES_BOOL_TRUE),
-            false => self.output.extend(consts::BYTES_BOOL_FALSE),
+            true => self.output.push(u8::MAX),
+            false => self.output.push(u8::MIN),
         }
 
         Ok(())
@@ -109,19 +112,19 @@ impl<'a> ser::Serializer for &'a mut RfsSerializer {
 
     fn serialize_str(self, v: &str) -> Result<Self::Ok, Self::Error> {
         let str_bytes = v.as_bytes();
-        write_bytes(&mut self.output, consts::BYTES_STR, str_bytes);
+        write_bytes(&mut self.output, &[consts::BYTES_STR], str_bytes);
 
         Ok(())
     }
 
     fn serialize_bytes(self, v: &[u8]) -> Result<Self::Ok, Self::Error> {
-        write_bytes(&mut self.output, consts::BYTES_BYTES, v);
+        write_bytes(&mut self.output, &[consts::BYTES_BYTES], v);
         Ok(())
     }
 
     // none variants are serialized to 0b0000_0000
     fn serialize_none(self) -> Result<Self::Ok, Self::Error> {
-        self.output.extend(consts::BYTES_OPTIONAL);
+        self.output.push(consts::BYTES_OPTIONAL);
         self.output.push(consts::OPTION_NONE_VARIANT);
         Ok(())
     }
@@ -131,13 +134,13 @@ impl<'a> ser::Serializer for &'a mut RfsSerializer {
     where
         T: serde::Serialize,
     {
-        self.output.extend(consts::BYTES_OPTIONAL);
+        self.output.push(consts::BYTES_OPTIONAL);
         self.output.push(consts::OPTION_SOME_VARIANT);
         value.serialize(self)
     }
 
     fn serialize_unit(self) -> Result<Self::Ok, Self::Error> {
-        self.output.extend(consts::BYTES_UNIT);
+        self.output.push(consts::BYTES_UNIT);
         Ok(())
     }
 
