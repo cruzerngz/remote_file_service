@@ -15,6 +15,9 @@ pub enum Error {
     DelimiterNotFound(char),
     /// Type descriptor prefix does not match expected type
     PrefixNotMatched(String),
+
+    /// Something's wrong with the data
+    MalformedData,
 }
 
 impl std::error::Error for Error {}

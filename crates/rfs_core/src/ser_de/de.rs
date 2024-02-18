@@ -31,7 +31,14 @@ macro_rules! deserialize_signed {
         where
             V: de::Visitor<'de>,
         {
-            let bytes = self.input.next_bytes_fixed::<8>(true);
+            validate_bytes! {
+                self.input,
+                consts::PREFIX_NUM
+                => Self::Error::PrefixNotMatched(format!("numeric prefix not found"))
+            }
+
+            const NUM_BYTES: usize = std::mem::size_of::<ByteSizePrefix>();
+            let bytes = self.input.next_bytes_fixed::<NUM_BYTES>(true);
             visitor.$visitor_fn(i64::from_be_bytes(bytes) as $data_type)
         }
     };
@@ -44,7 +51,14 @@ macro_rules! deserialize_unsigned {
         where
             V: de::Visitor<'de>,
         {
-            let bytes = self.input.next_bytes_fixed::<8>(true);
+            validate_bytes! {
+                self.input,
+                consts::PREFIX_NUM
+                => Self::Error::PrefixNotMatched(format!("numeric prefix not found"))
+            }
+
+            const NUM_BYTES: usize = std::mem::size_of::<ByteSizePrefix>();
+            let bytes = self.input.next_bytes_fixed::<NUM_BYTES>(true);
             visitor.$visitor_fn(u64::from_be_bytes(bytes) as $data_type)
         }
     };
@@ -70,7 +84,26 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut RfsDeserializer<'de> {
     where
         V: de::Visitor<'de>,
     {
-        todo!("re-format data to be self-describing")
+        let prefix = self.input.peek();
+
+        // only higher-level data-types are prefixed.
+        // primitive types like `char` cannot be inferred.
+        match prefix {
+            Some(&consts::PREFIX_BOOL) => self.deserialize_bool(visitor),
+            Some(&consts::PREFIX_BYTES) => self.deserialize_bytes(visitor),
+            Some(&consts::PREFIX_ENUM) => unimplemented!("insufficient information"),
+            Some(&consts::PREFIX_MAP) => self.deserialize_map(visitor),
+            Some(&consts::PREFIX_NUM) => self.deserialize_u64(visitor),
+            Some(&consts::PREFIX_OPTIONAL) => self.deserialize_option(visitor),
+            Some(&consts::PREFIX_SEQ) => self.deserialize_seq(visitor),
+            Some(&consts::PREFIX_SEQ_CONST) => unimplemented!("insufficient information"),
+            Some(&consts::PREFIX_STR) => self.deserialize_str(visitor),
+            Some(&consts::PREFIX_UNIT) => self.deserialize_unit(visitor),
+
+            _ => Err(Self::Error::MalformedData),
+        }
+
+        // todo!("re-format data to be self-describing")
     }
 
     fn deserialize_bool<V>(self, visitor: V) -> Result<V::Value, Self::Error>
@@ -89,9 +122,9 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut RfsDeserializer<'de> {
         match (value == consts::BOOL_TRUE, value == consts::BOOL_FALSE) {
             (false, false) => {
                 // TODO: add new error variant, this variant should not be constructed here
-                (Err(super::err::Error::PrefixNotMatched(
+                Err(super::err::Error::PrefixNotMatched(
                     "unable to match boolean prefixes".to_string(),
-                )))
+                ))
             }
             (is_true, is_false) => {
                 if is_true {
@@ -115,14 +148,14 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut RfsDeserializer<'de> {
     deserialize_unsigned! {deserialize_u16: u16 => visit_u16}
     deserialize_unsigned! {deserialize_u8: u8 => visit_u8}
 
-    fn deserialize_f32<V>(self, visitor: V) -> Result<V::Value, Self::Error>
+    fn deserialize_f32<V>(self, _: V) -> Result<V::Value, Self::Error>
     where
         V: de::Visitor<'de>,
     {
         unimplemented!("float serialization is not supported.")
     }
 
-    fn deserialize_f64<V>(self, visitor: V) -> Result<V::Value, Self::Error>
+    fn deserialize_f64<V>(self, _: V) -> Result<V::Value, Self::Error>
     where
         V: de::Visitor<'de>,
     {
@@ -249,7 +282,7 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut RfsDeserializer<'de> {
 
     fn deserialize_unit_struct<V>(
         self,
-        name: &'static str,
+        _name: &'static str,
         visitor: V,
     ) -> Result<V::Value, Self::Error>
     where
@@ -260,7 +293,7 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut RfsDeserializer<'de> {
 
     fn deserialize_newtype_struct<V>(
         self,
-        name: &'static str,
+        _name: &'static str,
         visitor: V,
     ) -> Result<V::Value, Self::Error>
     where
@@ -292,7 +325,7 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut RfsDeserializer<'de> {
         val
     }
 
-    fn deserialize_tuple<V>(self, len: usize, visitor: V) -> Result<V::Value, Self::Error>
+    fn deserialize_tuple<V>(self, _len: usize, visitor: V) -> Result<V::Value, Self::Error>
     where
         V: de::Visitor<'de>,
     {
@@ -316,14 +349,14 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut RfsDeserializer<'de> {
 
     fn deserialize_tuple_struct<V>(
         self,
-        name: &'static str,
+        _name: &'static str,
         len: usize,
         visitor: V,
     ) -> Result<V::Value, Self::Error>
     where
         V: de::Visitor<'de>,
     {
-        todo!()
+        self.deserialize_tuple(len, visitor)
     }
 
     fn deserialize_map<V>(self, visitor: V) -> Result<V::Value, Self::Error>
@@ -354,8 +387,8 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut RfsDeserializer<'de> {
 
     fn deserialize_struct<V>(
         self,
-        name: &'static str,
-        fields: &'static [&'static str],
+        _name: &'static str,
+        _fields: &'static [&'static str],
         visitor: V,
     ) -> Result<V::Value, Self::Error>
     where
@@ -367,8 +400,8 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut RfsDeserializer<'de> {
 
     fn deserialize_enum<V>(
         self,
-        name: &'static str,
-        variants: &'static [&'static str],
+        _name: &'static str,
+        _variants: &'static [&'static str],
         visitor: V,
     ) -> Result<V::Value, Self::Error>
     where
@@ -396,11 +429,11 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut RfsDeserializer<'de> {
         self.deserialize_str(visitor)
     }
 
-    fn deserialize_ignored_any<V>(self, visitor: V) -> Result<V::Value, Self::Error>
+    fn deserialize_ignored_any<V>(self, _visitor: V) -> Result<V::Value, Self::Error>
     where
         V: de::Visitor<'de>,
     {
-        todo!()
+        unimplemented!()
     }
 }
 
@@ -416,6 +449,7 @@ struct ByteViewer<'arr> {
     offset: usize,
 }
 
+#[allow(unused)]
 impl<'arr> ByteViewer<'arr> {
     /// Create a new viewer on a byte slice
     pub fn from_slice(s: &'arr [u8]) -> Self {
@@ -660,7 +694,7 @@ impl<'a, 'de> VariantAccess<'de> for CollectionsAccessor<'a, 'de> {
 
     fn struct_variant<V>(
         self,
-        fields: &'static [&'static str],
+        _fields: &'static [&'static str],
         visitor: V,
     ) -> Result<V::Value, Self::Error>
     where

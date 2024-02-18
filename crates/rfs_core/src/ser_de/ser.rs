@@ -2,7 +2,7 @@
 
 use serde::{ser, Serialize};
 
-use super::consts::{self, ByteSizePrefix, SEQ_CLOSE};
+use super::consts::{self, ByteSizePrefix};
 
 /// This data structure contains the serialized bytes of any arbitrary data structure.
 ///
@@ -23,6 +23,7 @@ impl Default for RfsSerializer {
 macro_rules! serialize_unsigned {
     ($fn_name: ident: $num_type: ty) => {
         fn $fn_name(self, v: $num_type) -> Result<Self::Ok, Self::Error> {
+            self.output.push(consts::PREFIX_NUM);
             self.output.extend((v as u64).to_be_bytes());
             Ok(())
         }
@@ -33,6 +34,7 @@ macro_rules! serialize_unsigned {
 macro_rules! serialize_signed {
     ($fn_name: ident: $num_type: ty) => {
         fn $fn_name(self, v: $num_type) -> Result<Self::Ok, Self::Error> {
+            self.output.push(consts::PREFIX_NUM);
             self.output.extend((v as i64).to_be_bytes());
             Ok(())
         }
@@ -89,11 +91,11 @@ impl<'a> ser::Serializer for &'a mut RfsSerializer {
     serialize_unsigned! {serialize_u32: u32}
     serialize_unsigned! {serialize_u64: u64}
 
-    fn serialize_f32(self, v: f32) -> Result<Self::Ok, Self::Error> {
+    fn serialize_f32(self, _: f32) -> Result<Self::Ok, Self::Error> {
         unimplemented!("float serialization is not supported.")
     }
 
-    fn serialize_f64(self, v: f64) -> Result<Self::Ok, Self::Error> {
+    fn serialize_f64(self, _: f64) -> Result<Self::Ok, Self::Error> {
         unimplemented!("float serialization is not supported.")
     }
 
@@ -136,15 +138,15 @@ impl<'a> ser::Serializer for &'a mut RfsSerializer {
         Ok(())
     }
 
-    fn serialize_unit_struct(self, name: &'static str) -> Result<Self::Ok, Self::Error> {
+    fn serialize_unit_struct(self, _: &'static str) -> Result<Self::Ok, Self::Error> {
         self.serialize_unit()
     }
 
     // serialize the index of a unit variant
     fn serialize_unit_variant(
         self,
-        name: &'static str,
-        variant_index: u32,
+        _: &'static str,
+        _: u32,
         variant: &'static str,
     ) -> Result<Self::Ok, Self::Error> {
         self.output.push(consts::PREFIX_ENUM);
@@ -154,7 +156,7 @@ impl<'a> ser::Serializer for &'a mut RfsSerializer {
     // serialize the inner value
     fn serialize_newtype_struct<T: ?Sized>(
         self,
-        name: &'static str,
+        _: &'static str,
         value: &T,
     ) -> Result<Self::Ok, Self::Error>
     where
@@ -166,8 +168,8 @@ impl<'a> ser::Serializer for &'a mut RfsSerializer {
     // serialize the index, then the inner variant
     fn serialize_newtype_variant<T: ?Sized>(
         self,
-        name: &'static str,
-        variant_index: u32,
+        _: &'static str,
+        _: u32,
         variant: &'static str,
         value: &T,
     ) -> Result<Self::Ok, Self::Error>
@@ -180,13 +182,13 @@ impl<'a> ser::Serializer for &'a mut RfsSerializer {
         value.serialize(&mut *self)
     }
 
-    fn serialize_seq(self, len: Option<usize>) -> Result<Self::SerializeSeq, Self::Error> {
+    fn serialize_seq(self, _len: Option<usize>) -> Result<Self::SerializeSeq, Self::Error> {
         self.output.push(consts::PREFIX_SEQ);
         self.output.push(consts::SEQ_OPEN);
         Ok(self)
     }
 
-    fn serialize_tuple(self, len: usize) -> Result<Self::SerializeTuple, Self::Error> {
+    fn serialize_tuple(self, _len: usize) -> Result<Self::SerializeTuple, Self::Error> {
         self.output.push(consts::PREFIX_SEQ_CONST);
         self.output.push(consts::SEQ_CONST_OPEN);
         Ok(self)
@@ -194,7 +196,7 @@ impl<'a> ser::Serializer for &'a mut RfsSerializer {
 
     fn serialize_tuple_struct(
         self,
-        name: &'static str,
+        _name: &'static str,
         len: usize,
     ) -> Result<Self::SerializeTupleStruct, Self::Error> {
         self.serialize_tuple(len)?;
@@ -203,19 +205,18 @@ impl<'a> ser::Serializer for &'a mut RfsSerializer {
 
     fn serialize_tuple_variant(
         self,
-        name: &'static str,
-        variant_index: u32,
+        _name: &'static str,
+        _len: u32,
         variant: &'static str,
         len: usize,
     ) -> Result<Self::SerializeTupleVariant, Self::Error> {
         self.output.push(consts::PREFIX_ENUM);
-        // self.serialize_u32(variant_index)?;
         variant.serialize(&mut *self)?;
         self.serialize_tuple(len)?;
         Ok(self)
     }
 
-    fn serialize_map(self, len: Option<usize>) -> Result<Self::SerializeMap, Self::Error> {
+    fn serialize_map(self, _len: Option<usize>) -> Result<Self::SerializeMap, Self::Error> {
         self.output.push(consts::PREFIX_MAP);
         self.output.push(consts::MAP_OPEN);
         Ok(self)
@@ -223,8 +224,8 @@ impl<'a> ser::Serializer for &'a mut RfsSerializer {
 
     fn serialize_struct(
         self,
-        name: &'static str,
-        len: usize,
+        _name: &'static str,
+        _len: usize,
     ) -> Result<Self::SerializeStruct, Self::Error> {
         self.output.push(consts::PREFIX_MAP);
         self.output.push(consts::MAP_OPEN);
@@ -234,12 +235,11 @@ impl<'a> ser::Serializer for &'a mut RfsSerializer {
     fn serialize_struct_variant(
         self,
         name: &'static str,
-        variant_index: u32,
+        _len: u32,
         variant: &'static str,
         len: usize,
     ) -> Result<Self::SerializeStructVariant, Self::Error> {
         self.output.push(consts::PREFIX_ENUM);
-        // self.serialize_u32(variant_index)?;
         variant.serialize(&mut *self)?;
         self.serialize_struct(name, len)
     }
@@ -341,14 +341,14 @@ impl<'a> ser::SerializeMap for &'a mut RfsSerializer {
         Ok(())
     }
 
-    fn serialize_key<T: ?Sized>(&mut self, key: &T) -> Result<(), Self::Error>
+    fn serialize_key<T: ?Sized>(&mut self, _key: &T) -> Result<(), Self::Error>
     where
         T: serde::Serialize,
     {
         unimplemented!("use serialize_entry()")
     }
 
-    fn serialize_value<T: ?Sized>(&mut self, value: &T) -> Result<(), Self::Error>
+    fn serialize_value<T: ?Sized>(&mut self, _value: &T) -> Result<(), Self::Error>
     where
         T: serde::Serialize,
     {
@@ -413,7 +413,6 @@ impl<'a> ser::SerializeStructVariant for &'a mut RfsSerializer {
     }
 
     fn end(self) -> Result<Self::Ok, Self::Error> {
-        self.output.push(consts::MAP_CLOSE);
         self.output.push(consts::MAP_CLOSE);
 
         Ok(())

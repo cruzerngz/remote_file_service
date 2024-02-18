@@ -1,5 +1,5 @@
 //! Serialization and deserialization module
-#![allow(unused)]
+// #![allow(unused)]
 
 use self::err::SerDeResult;
 
@@ -35,13 +35,6 @@ mod tests {
     use super::*;
     use serde::{Deserialize, Serialize};
 
-    #[derive(Debug, Serialize, Deserialize, Default)]
-    struct S {
-        item: bool,
-        number: i32,
-        s: String,
-    }
-
     /// Performs a ser-de process
     fn ser_de_loop<T: Debug + Serialize + for<'a> Deserialize<'a>>(input: T) {
         let ser = serialize(&input).unwrap();
@@ -76,28 +69,51 @@ mod tests {
     /// Testing ser_de of structs
     #[test]
     fn test_ser_de_struct() {
-        let s = S {
+        #[derive(Debug, Serialize, Deserialize, Default)]
+        struct Traditional {
+            item: bool,
+            number: i32,
+            s: String,
+        }
+
+        #[derive(Debug, Serialize, Deserialize, Default)]
+        struct Tuple((bool, String, u32));
+
+        #[derive(Debug, Serialize, Deserialize, Default)]
+        struct NewType(bool);
+
+        #[derive(Debug, Serialize, Deserialize, Default)]
+        struct Unit;
+
+        ser_de_loop(Traditional {
             item: false,
             number: 10000,
             s: "asd".to_string(),
-        };
-        ser_de_loop(s);
+        });
+        ser_de_loop(Tuple((
+            true,
+            "how does serialization work?".to_string(),
+            314159,
+        )));
+        ser_de_loop(NewType(true));
+        ser_de_loop(Unit);
     }
 
+    /// Testing ser_de of enum and various variants
     #[test]
     fn test_ser_de_enum() {
         #[derive(Debug, Serialize, Deserialize)]
         enum E {
-            This,
-            That(bool),
-            WhatEver((i32, bool)),
-            IDontCare { a: bool, b: i8, c: String },
+            VUnit,
+            VNewType(bool),
+            VTuple((i32, bool)),
+            VStruct { a: bool, b: i8, c: String },
         }
 
-        ser_de_loop(E::This);
-        ser_de_loop(E::That(false));
-        ser_de_loop(E::WhatEver((10, true)));
-        ser_de_loop(E::IDontCare {
+        ser_de_loop(E::VUnit);
+        ser_de_loop(E::VNewType(false));
+        ser_de_loop(E::VTuple((10, true)));
+        ser_de_loop(E::VStruct {
             a: true,
             b: i8::MAX,
             c: "Hello How are You".to_string(),
