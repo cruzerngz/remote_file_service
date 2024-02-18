@@ -3,6 +3,8 @@ use std::path::PathBuf;
 mod context_manager;
 mod ser_de;
 
+pub use ser_de::{deserialize, serialize};
+
 /// Remote file operations interface
 pub trait RemoteFileOperations {
     /// Get the contents of a file.

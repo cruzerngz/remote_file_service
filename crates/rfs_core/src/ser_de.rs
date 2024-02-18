@@ -8,8 +8,8 @@ mod de;
 mod err;
 mod ser;
 
-/// Serialize a data structure
-pub fn to_serialized_bytes<T: serde::Serialize>(value: &T) -> SerDeResult<Vec<u8>> {
+/// Serialize a data structure to a vector of bytes
+pub fn serialize<T: serde::Serialize>(value: &T) -> SerDeResult<Vec<u8>> {
     let mut serializer = ser::RfsSerializer::default();
 
     value.serialize(&mut serializer)?;
@@ -17,8 +17,8 @@ pub fn to_serialized_bytes<T: serde::Serialize>(value: &T) -> SerDeResult<Vec<u8
     Ok(serializer.output)
 }
 
-/// Deserialize a data structure
-pub fn from_serialized_bytes<T>(bytes: &[u8]) -> SerDeResult<T>
+/// Deserialize a data structure from a slice of bytes
+pub fn deserialize<T>(bytes: &[u8]) -> SerDeResult<T>
 where
     T: for<'a> serde::Deserialize<'a>,
 {
@@ -30,6 +30,8 @@ where
 /// Serializing and deserializing tests
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
+
     use super::*;
     use serde::{Deserialize, Serialize};
 
@@ -47,13 +49,21 @@ mod tests {
             number: 10_000,
             s: "testing".to_string(),
         };
-        let serialized = to_serialized_bytes(&instance).unwrap();
+
+        let instance: HashMap<String, i32> = HashMap::from([
+            ("asd".to_string(), 10_000),
+            ("how about that 👏👏👏".to_string(), 69),
+        ]);
+
+        let serialized = serialize(&instance).unwrap();
 
         println!("{:?}", instance);
         println!("{:?}", serialized);
         let x = std::str::from_utf8(&serialized);
         println!("{:?}", x);
 
-        let deserialized: S = from_serialized_bytes(&serialized).unwrap();
+        let deserialized: HashMap<String, i32> = deserialize(&serialized).unwrap();
+
+        println!("{:?}", deserialized)
     }
 }

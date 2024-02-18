@@ -1,6 +1,6 @@
 //! Implementation of [serde::de::Deserializer] for [RfsDeserializer]
 
-use serde::de;
+use serde::de::{self, EnumAccess, MapAccess, SeqAccess};
 
 use crate::ser_de::consts;
 
@@ -141,6 +141,12 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut RfsDeserializer<'de> {
     where
         V: de::Visitor<'de>,
     {
+        let str_prefix = self.input.next_bytes(consts::BYTES_STR.len(), true);
+        match str_prefix.starts_with(consts::BYTES_STR) {
+            true => (),
+            false => return Err(super::err::Error::PrefixNotMatched(format!(""))),
+        }
+
         let len = self.input.pop_size();
         let str_bytes = self.input.next_bytes(len as usize, true);
 
@@ -154,6 +160,12 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut RfsDeserializer<'de> {
     where
         V: de::Visitor<'de>,
     {
+        let str_prefix = self.input.next_bytes(consts::BYTES_STR.len(), true);
+        match str_prefix.starts_with(consts::BYTES_STR) {
+            true => (),
+            false => return Err(super::err::Error::PrefixNotMatched(format!(""))),
+        }
+
         let len = self.input.pop_size();
         let str_bytes = self.input.next_bytes(len as usize, true);
 
@@ -282,7 +294,25 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut RfsDeserializer<'de> {
     where
         V: de::Visitor<'de>,
     {
-        todo!()
+        let open_delim = self.input.next_byte();
+        if open_delim != consts::MAP_OPEN {
+            return Err(crate::ser_de::err::Error::DelimiterNotFound(
+                consts::MAP_OPEN as char,
+            ));
+        }
+
+        let accessor = CollectionsAccessor::from_deserializer(self);
+
+        let val = visitor.visit_map(accessor);
+
+        let close_delim = self.input.next_byte();
+        if close_delim != consts::MAP_CLOSE {
+            return Err(crate::ser_de::err::Error::DelimiterNotFound(
+                consts::MAP_CLOSE as char,
+            ));
+        }
+
+        val
     }
 
     fn deserialize_struct<V>(
@@ -429,5 +459,94 @@ impl<'arr> ByteViewer<'arr> {
 
         view.try_into()
             .expect("slice and array should have the same length")
+    }
+}
+
+/// This wrapper contains implementations for accessing collections.
+struct CollectionsAccessor<'a, 'de: 'a> {
+    des: &'a mut RfsDeserializer<'de>,
+}
+
+impl<'a, 'de> CollectionsAccessor<'a, 'de> {
+    /// Create a new instance of the collections accessor
+    pub fn from_deserializer(des: &'a mut RfsDeserializer<'de>) -> Self {
+        Self { des }
+    }
+}
+
+impl<'a, 'de> SeqAccess<'de> for CollectionsAccessor<'a, 'de> {
+    type Error = super::err::Error;
+
+    fn next_element_seed<T>(&mut self, seed: T) -> Result<Option<T::Value>, Self::Error>
+    where
+        T: de::DeserializeSeed<'de>,
+    {
+        // stop
+        if self.des.input.peek() == Some(&consts::SEQ_CLOSE) {
+            self.des.input.advance(1).unwrap();
+            return Ok(None);
+        }
+
+        seed.deserialize(&mut *self.des).map(Some)
+    }
+}
+
+impl<'a, 'de> MapAccess<'de> for CollectionsAccessor<'a, 'de> {
+    type Error = super::err::Error;
+
+    fn next_key_seed<K>(&mut self, seed: K) -> Result<Option<K::Value>, Self::Error>
+    where
+        K: de::DeserializeSeed<'de>,
+    {
+        unimplemented!("deserialization implemented in next_entry_seed()")
+    }
+
+    fn next_value_seed<V>(&mut self, seed: V) -> Result<V::Value, Self::Error>
+    where
+        V: de::DeserializeSeed<'de>,
+    {
+        unimplemented!("deserialization implemented in next_entry_seed()")
+    }
+
+    fn next_entry_seed<K, V>(
+        &mut self,
+        kseed: K,
+        vseed: V,
+    ) -> Result<Option<(K::Value, V::Value)>, Self::Error>
+    where
+        K: de::DeserializeSeed<'de>,
+        V: de::DeserializeSeed<'de>,
+    {
+        // stop
+        if self.des.input.peek() == Some(&consts::MAP_CLOSE) {
+            return Ok(None);
+        }
+
+        let open_delim = self.des.input.next_byte();
+        if open_delim != consts::MAP_ENTRY_OPEN {
+            return Err(crate::ser_de::err::Error::DelimiterNotFound(
+                consts::MAP_ENTRY_OPEN as char,
+            ));
+        }
+
+        let key = kseed.deserialize(&mut *self.des)?;
+
+        let mid_delim = self.des.input.next_byte();
+        if mid_delim != consts::MAP_ENTRY_MID {
+            return Err(crate::ser_de::err::Error::DelimiterNotFound(
+                consts::MAP_ENTRY_MID as char,
+            ));
+        }
+
+        let val = vseed.deserialize(&mut *self.des)?;
+
+        let end_delim = self.des.input.next_byte();
+        if end_delim != consts::MAP_ENTRY_CLOSE {
+            return Err(crate::ser_de::err::Error::DelimiterNotFound(
+                consts::MAP_ENTRY_CLOSE as char,
+            ));
+        }
+
+        Ok(Some((key, val)))
     }
 }

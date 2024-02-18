@@ -42,3 +42,7 @@ pub const SEQ_CONST_CLOSE: u8 = ')' as u8;
 // maps with an arbitrary number of elements
 pub const MAP_OPEN: u8 = '{' as u8;
 pub const MAP_CLOSE: u8 = '}' as u8;
+
+pub const MAP_ENTRY_OPEN: u8 = '<' as u8;
+pub const MAP_ENTRY_MID: u8 = '-' as u8;
+pub const MAP_ENTRY_CLOSE: u8 = '>' as u8;
