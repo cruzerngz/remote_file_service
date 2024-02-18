@@ -2,7 +2,7 @@
 
 use serde::ser;
 
-use super::consts::{self, SEQ_CLOSE};
+use super::consts::{self, ByteSizePrefix, SEQ_CLOSE};
 
 /// This data structure contains the serialized bytes of any arbitrary data structure.
 ///
@@ -23,7 +23,8 @@ impl Default for RfsSerializer {
 macro_rules! serialize_unsigned {
     ($fn_name: ident: $num_type: ty) => {
         fn $fn_name(self, v: $num_type) -> Result<Self::Ok, Self::Error> {
-            self.serialize_u64(u64::from(v))
+            self.output.extend((v as u64).to_be_bytes());
+            Ok(())
         }
     };
 }
@@ -32,7 +33,8 @@ macro_rules! serialize_unsigned {
 macro_rules! serialize_signed {
     ($fn_name: ident: $num_type: ty) => {
         fn $fn_name(self, v: $num_type) -> Result<Self::Ok, Self::Error> {
-            self.serialize_i64(i64::from(v))
+            self.output.extend((v as i64).to_be_bytes());
+            Ok(())
         }
     };
 }
@@ -41,7 +43,7 @@ macro_rules! serialize_signed {
 ///
 /// The prefix is written first, then the length of the slice, then the slice.
 fn write_bytes(buffer: &mut Vec<u8>, prefix: &[u8], bytes: &[u8]) {
-    let len = bytes.len() as u64;
+    let len = bytes.len() as ByteSizePrefix;
     buffer.extend(prefix);
     buffer.extend(len.to_be_bytes());
     buffer.extend(bytes);
@@ -67,8 +69,7 @@ impl<'a> ser::Serializer for &'a mut RfsSerializer {
     type SerializeStructVariant = Self;
 
     fn serialize_bool(self, v: bool) -> Result<Self::Ok, Self::Error> {
-
-        self.output.push(consts::BYTES_BOOL);
+        self.output.push(consts::PREFIX_BOOL);
 
         match v {
             true => self.output.push(u8::MAX),
@@ -81,20 +82,12 @@ impl<'a> ser::Serializer for &'a mut RfsSerializer {
     serialize_signed! {serialize_i8: i8}
     serialize_signed! {serialize_i16: i16}
     serialize_signed! {serialize_i32: i32}
-
-    fn serialize_i64(self, v: i64) -> Result<Self::Ok, Self::Error> {
-        self.output.extend(v.to_be_bytes());
-        Ok(())
-    }
+    serialize_signed! {serialize_i64: i64}
 
     serialize_unsigned! {serialize_u8: u8}
     serialize_unsigned! {serialize_u16: u16}
     serialize_unsigned! {serialize_u32: u32}
-
-    fn serialize_u64(self, v: u64) -> Result<Self::Ok, Self::Error> {
-        self.output.extend(v.to_be_bytes());
-        Ok(())
-    }
+    serialize_unsigned! {serialize_u64: u64}
 
     fn serialize_f32(self, v: f32) -> Result<Self::Ok, Self::Error> {
         unimplemented!("float serialization is not supported.")
@@ -105,27 +98,26 @@ impl<'a> ser::Serializer for &'a mut RfsSerializer {
     }
 
     fn serialize_char(self, v: char) -> Result<Self::Ok, Self::Error> {
-        // let char_bytes = char::u32
         self.output.extend((v as u32).to_be_bytes());
         Ok(())
     }
 
     fn serialize_str(self, v: &str) -> Result<Self::Ok, Self::Error> {
         let str_bytes = v.as_bytes();
-        write_bytes(&mut self.output, &[consts::BYTES_STR], str_bytes);
+        write_bytes(&mut self.output, &[consts::PREFIX_STR], str_bytes);
 
         Ok(())
     }
 
     fn serialize_bytes(self, v: &[u8]) -> Result<Self::Ok, Self::Error> {
-        write_bytes(&mut self.output, &[consts::BYTES_BYTES], v);
+        write_bytes(&mut self.output, &[consts::PREFIX_BYTES], v);
         Ok(())
     }
 
     // none variants are serialized to 0b0000_0000
     fn serialize_none(self) -> Result<Self::Ok, Self::Error> {
-        self.output.push(consts::BYTES_OPTIONAL);
-        self.output.push(consts::OPTION_NONE_VARIANT);
+        self.output.push(consts::PREFIX_OPTIONAL);
+        self.output.push(consts::OPTION_NONE);
         Ok(())
     }
 
@@ -134,13 +126,13 @@ impl<'a> ser::Serializer for &'a mut RfsSerializer {
     where
         T: serde::Serialize,
     {
-        self.output.push(consts::BYTES_OPTIONAL);
-        self.output.push(consts::OPTION_SOME_VARIANT);
+        self.output.push(consts::PREFIX_OPTIONAL);
+        self.output.push(consts::OPTION_SOME);
         value.serialize(self)
     }
 
     fn serialize_unit(self) -> Result<Self::Ok, Self::Error> {
-        self.output.push(consts::BYTES_UNIT);
+        self.output.push(consts::PREFIX_UNIT);
         Ok(())
     }
 
@@ -186,13 +178,14 @@ impl<'a> ser::Serializer for &'a mut RfsSerializer {
     }
 
     fn serialize_seq(self, len: Option<usize>) -> Result<Self::SerializeSeq, Self::Error> {
+        self.output.push(consts::PREFIX_SEQ);
         self.output.push(consts::SEQ_OPEN);
         Ok(self)
     }
 
     fn serialize_tuple(self, len: usize) -> Result<Self::SerializeTuple, Self::Error> {
+        self.output.push(consts::PREFIX_SEQ_CONST);
         self.output.push(consts::SEQ_CONST_OPEN);
-        // self.serialize_u64(len as u64)?;
         Ok(self)
     }
 
@@ -218,6 +211,7 @@ impl<'a> ser::Serializer for &'a mut RfsSerializer {
     }
 
     fn serialize_map(self, len: Option<usize>) -> Result<Self::SerializeMap, Self::Error> {
+        self.output.push(consts::PREFIX_MAP);
         self.output.push(consts::MAP_OPEN);
         Ok(self)
     }
@@ -227,7 +221,7 @@ impl<'a> ser::Serializer for &'a mut RfsSerializer {
         name: &'static str,
         len: usize,
     ) -> Result<Self::SerializeStruct, Self::Error> {
-        // self.serialize_u64(len as u64)?;
+        self.output.push(consts::PREFIX_MAP);
         self.output.push(consts::MAP_OPEN);
         Ok(self)
     }

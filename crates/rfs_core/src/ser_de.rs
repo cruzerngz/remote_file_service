@@ -30,7 +30,7 @@ where
 /// Serializing and deserializing tests
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
+    use std::{collections::HashMap, fmt::Debug};
 
     use super::*;
     use serde::{Deserialize, Serialize};
@@ -42,28 +42,36 @@ mod tests {
         s: String,
     }
 
-    #[test]
-    fn test_ser_de_struct() {
-        let instance = S {
-            item: true,
-            number: 10_000,
-            s: "testing".to_string(),
-        };
+    /// Performs a ser-de process
+    fn ser_de_loop<T: Debug + Serialize + for<'a> Deserialize<'a>>(input: T) {
+        let ser = serialize(&input).unwrap();
 
-        let instance: HashMap<String, i32> = HashMap::from([
+        println!("bytes: {} - {:?}", ser.len(), ser);
+        println!("{:?}", std::str::from_utf8(&ser));
+        let des: T = deserialize(&ser).unwrap();
+
+        println!("{:?}", des);
+    }
+
+    #[test]
+    fn test_ser_de_map() {
+        let map: HashMap<String, i32> = HashMap::from([
             ("asd".to_string(), 10_000),
             ("how about that 👏👏👏".to_string(), 69),
         ]);
 
-        let serialized = serialize(&instance).unwrap();
+        ser_de_loop(map);
+    }
 
-        println!("{:?}", instance);
-        println!("{:?}", serialized);
-        let x = std::str::from_utf8(&serialized);
-        println!("{:?}", x);
+    /// Testing ser_de of sequences, like vectors and tuples
+    #[test]
+    fn test_ser_de_seq() {
+        let seq = vec![100, 200, 300, 400];
 
-        let deserialized: HashMap<String, i32> = deserialize(&serialized).unwrap();
+        ser_de_loop(seq);
 
-        println!("{:?}", deserialized)
+        let tup = (12, 100, 20000);
+
+        ser_de_loop(tup);
     }
 }

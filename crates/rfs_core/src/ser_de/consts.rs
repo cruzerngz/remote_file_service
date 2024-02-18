@@ -1,7 +1,11 @@
-//! Shared constants between serialization and deserialization logic.
+//! Shared constants and definitions between serialization and deserialization logic.
 
-pub const OPTION_SOME_VARIANT: u8 = u8::MAX;
-pub const OPTION_NONE_VARIANT: u8 = u8::MIN;
+/// The primitive data type that prefixes an arbitrary array of
+/// bytes.
+pub type ByteSizePrefix = u64;
+
+pub const OPTION_SOME: u8 = u8::MAX;
+pub const OPTION_NONE: u8 = u8::MIN;
 
 pub const BOOL_TRUE: u8 = u8::MAX;
 pub const BOOL_FALSE: u8 = u8::MIN;
@@ -10,34 +14,34 @@ pub const BOOL_FALSE: u8 = u8::MIN;
 // inferred/asserted during deserialization.
 
 /// `c` for condition
-pub const BYTES_BOOL: u8 = 'c' as u8;
+pub const PREFIX_BOOL: u8 = 'c' as u8;
 
 /// `u` for unit
-pub const BYTES_UNIT: u8 = 'u' as u8;
+pub const PREFIX_UNIT: u8 = 'u' as u8;
 
 /// `s` for string
-pub const BYTES_STR: u8 = 's' as u8;
+pub const PREFIX_STR: u8 = 's' as u8;
 
 /// `b` for bytes
-pub const BYTES_BYTES: u8 = 'b' as u8;
+pub const PREFIX_BYTES: u8 = 'b' as u8;
 
 /// `o` for option
-pub const BYTES_OPTIONAL: u8 = 'o' as u8;
+pub const PREFIX_OPTIONAL: u8 = 'o' as u8;
 
 /// Prefix for numbers. All primitive numeric types are serialized as `u64` or `i64`,
 /// into big endian.
 ///
 /// `n` for numeric
-pub const BYTES_NUM: u8 = 'n' as u8;
+pub const PREFIX_NUM: u8 = 'n' as u8;
 
 /// `v` for vectors
-pub const BYTES_SEQ: u8 = 'v' as u8;
+pub const PREFIX_SEQ: u8 = 'v' as u8;
 
 /// `t` for tuples
-pub const BYTES_SEQ_CONST: u8 = 't' as u8;
+pub const PREFIX_SEQ_CONST: u8 = 't' as u8;
 
 /// `m` for map
-pub const BYTES_MAP: u8 = 'm' as u8;
+pub const PREFIX_MAP: u8 = 'm' as u8;
 
 // byte delimiters for
 // collections
