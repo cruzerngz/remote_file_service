@@ -10,5 +10,6 @@ description = "Server binary"
 rfs_core = { path = "../rfs_core" }
 rfs_methods = { path = "../rfs_methods" }
 
+async-trait = { workspace = true }
 clap = { workspace = true }
 tokio = { workspace = true }

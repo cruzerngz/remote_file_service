@@ -4,11 +4,15 @@
 pub mod middleware;
 pub mod ser_de;
 
+use async_trait::async_trait;
+use middleware::InvokeError;
 pub use rfs_macros::*;
 pub use ser_de::{deserialize, deserialize_packed, serialize, serialize_packed};
 
-/// A type that satistifies these bounds will support
-/// remote invocation.
+/// A type that is remotely invocable.
+///
+/// Traits with the [`remote_interface`] proc-macro automatically generate payloads
+/// that fulfill these trait bounds.
 pub trait RemotelyInvocable:
     RemoteMethodSignature + serde::Serialize + for<'a> serde::Deserialize<'a>
 {
@@ -26,17 +30,17 @@ pub trait RemotelyInvocable:
     /// Attempt to process and deserialize a set of bytes to `Self`.
     ///
     /// This method is automatically implemented and should not be overidden.
-    fn process_invocation(bytes: &[u8]) -> Result<Self, ()> {
+    fn process_invocation(bytes: &[u8]) -> Result<Self, InvokeError> {
         let signature = Self::remote_method_signature();
 
         match bytes.starts_with(signature) {
             true => (),
-            false => return Err(()),
+            false => return Err(InvokeError::SignatureNotMatched),
         }
 
         let data = &bytes[(signature.len())..];
 
-        crate::deserialize_packed(data).map_err(|_| ())
+        crate::deserialize_packed(data).map_err(|_| InvokeError::DeserializationFailed)
     }
 }
 
@@ -46,8 +50,10 @@ impl<T> RemotelyInvocable for T where
 {
 }
 
-/// This trait is automatically derived with the data structure generated from
-/// the `#[remote_interface]` proc-macro.
+/// This trait is used for differentiating the variant of a payload.
+///
+/// This trait is automatically derived from any interface that has the
+/// [`remote_interface`] proc-macro. (not yet)
 pub trait RemoteRequest {
     /// Checks if the payload is a request
     fn is_request(&self) -> bool;
@@ -55,8 +61,25 @@ pub trait RemoteRequest {
     fn is_response(&self) -> bool;
 }
 
+/// This trait is used for derived payloads that call their parent
+/// interfaces.
+///
+/// The given function signature must match with the parent interface.
+///
 /// This trait is automatically derived from any interface that has the
-/// `#[remote_interface]` proc-macro.
+/// [`remote_interface`] proc-macro. (not yet)
+#[async_trait]
+pub trait RemoteCall {
+    type Function;
+
+    async fn call(&self, func: Self::Function) -> Self;
+}
+
+/// The signature of a method call, used for routing remote invocations
+/// to their respective methods.
+///
+/// This trait is automatically derived from any interface that has the
+/// [`remote_interface`] proc-macro.
 pub trait RemoteMethodSignature {
     /// Returns the method signature of a remote interface method.
     ///

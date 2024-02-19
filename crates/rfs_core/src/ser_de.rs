@@ -3,11 +3,11 @@
 
 use self::{consts::ByteSizePrefix, err::SerDeResult};
 
-mod byte_packer;
+pub mod byte_packer;
 mod consts;
-mod de;
-mod err;
-mod ser;
+pub mod de;
+pub mod err;
+pub mod ser;
 
 /// Serialize a data structure to a vector of bytes
 pub fn serialize<T: serde::Serialize>(value: &T) -> SerDeResult<Vec<u8>> {

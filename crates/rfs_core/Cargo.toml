@@ -9,5 +9,6 @@ description = "RPC impls and common code library"
 [dependencies]
 rfs_macros = { path = "../rfs_macros" }
 
-serde = { workspace = true }
 async-trait = { workspace = true }
+futures = { workspace = true }
+serde = { workspace = true }

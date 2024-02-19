@@ -4,6 +4,7 @@ use quote::quote;
 use syn::{punctuated::Punctuated, ItemTrait};
 
 mod client;
+mod remote_call;
 mod remote_message;
 pub(crate) mod remote_method_signature;
 
@@ -50,17 +51,27 @@ pub fn remote_interface(
         // }
     });
 
-    let derived_enums = methods
+    let (derived_enum_idents_sigs, derived_enums): (Vec<_>, Vec<_>) = methods
         .clone()
         .map(|m| {
             let (enum_ident, tokens) = remote_message::derive_enum(ident.clone(), m.to_owned());
 
-            let remote_sig_derive =
-                remote_method_signature::derive(enum_ident, &format!("{}::{}", ident, m.sig.ident));
+            let remote_sig_derive = remote_method_signature::derive(
+                enum_ident.clone(),
+                &format!("{}::{}", ident, m.sig.ident),
+            );
 
-            [tokens, remote_sig_derive]
+            (
+                (enum_ident, m.sig.to_owned()),
+                [tokens, remote_sig_derive]
+                    .into_iter()
+                    .collect::<proc_macro2::TokenStream>(),
+            )
         })
-        .flatten()
+        .unzip();
+
+    let derived_enums = derived_enums
+        .into_iter()
         .collect::<proc_macro2::TokenStream>();
 
     // pass back the trait definition
@@ -69,10 +80,17 @@ pub fn remote_interface(
         #item_cloned
     };
 
+    // generate client struct
     let derived_client_impl =
         client::derive_client(ident.clone(), methods.map(|m| m.to_owned()).collect());
 
-    [trait_def, derived_enums, derived_client_impl]
+    // generate implementations for RemoteCall
+    let remote_call_impls = derived_enum_idents_sigs
+        .into_iter()
+        .map(|(ident, sig)|remote_call::derive_remote_call(ident, sig))
+        .collect::<proc_macro2::TokenStream>();
+
+    [trait_def, derived_enums, derived_client_impl]//, remote_call_impls]
         .into_iter()
         .collect::<proc_macro2::TokenStream>()
         .into()
