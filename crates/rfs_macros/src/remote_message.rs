@@ -7,8 +7,10 @@ use proc_macro2::{extra::DelimSpan, Span};
 use quote::quote;
 use syn::{punctuated::Punctuated, token::Comma, Field};
 
-const VARIANT_REQUEST: &str = "Request";
-const VARIANT_RESPONSE: &str = "Response";
+use crate::camel_case_to_pascal_case;
+
+pub(crate) const VARIANT_REQUEST: &str = "Request";
+pub(crate) const VARIANT_RESPONSE: &str = "Response";
 
 /// Construct the enum.
 ///
@@ -94,23 +96,6 @@ pub fn derive_enum(
             }
         },
     )
-}
-
-/// Converts `camel_case` to `CamelCase`
-fn camel_case_to_pascal_case(input: &str) -> String {
-    input
-        .split("_")
-        .map(|item| {
-            let mut chars = item.chars().collect::<Vec<_>>();
-
-            match chars.first_mut() {
-                Some(c) => *c = c.to_ascii_uppercase(),
-                None => (),
-            }
-
-            chars.iter().collect::<String>()
-        })
-        .collect::<String>()
 }
 
 /// Convert a single pattern `name: bool` into it's equivalent struct field.

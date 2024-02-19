@@ -1,11 +1,19 @@
 //! Logic for deriving a client data structure.
 //!
 
-use std::{cell::OnceCell, sync::Arc};
+use std::{cell::OnceCell, fmt::format, sync::Arc};
 
 use proc_macro2::{Ident, Span};
 use quote::{quote, ToTokens};
-use syn::{Block, FnArg, ImplItemFn, Pat, Signature, TraitItemFn};
+use syn::{
+    punctuated::Punctuated, spanned::Spanned, token::Comma, Block, Field, FieldValue, FnArg,
+    ImplItemFn, Pat, Signature, TraitItemFn,
+};
+
+use crate::{
+    camel_case_to_pascal_case,
+    remote_message::{VARIANT_REQUEST, VARIANT_RESPONSE},
+};
 
 const ADDITIONAL_ARG: OnceCell<FnArg> = OnceCell::new();
 
@@ -73,6 +81,15 @@ pub fn derive_client(
         .into_iter()
         .map(|method| {
             let mut signature = method.sig;
+
+            let request_builder = func_call_to_enum_request(
+                signature.inputs.clone(),
+                Ident::new(
+                    &camel_case_to_pascal_case(&format!("{}_{}", trait_name, signature.ident)),
+                    signature.ident.span(),
+                ),
+            );
+
             signature.inputs.insert(0, NEW_FUNC_ARG.clone());
 
             let new_method = ImplItemFn {
@@ -81,8 +98,13 @@ pub fn derive_client(
                     span: Span::call_site(),
                 }),
                 defaultness: None,
-                sig: signature,
-                block: FUNC_BODY.clone(),
+                sig: signature.to_owned(),
+                block: syn::parse2(quote! {{
+
+                    #request_builder
+
+                }})
+                .expect("block parsing should not fail"),
             };
 
             new_method.to_token_stream()
@@ -97,4 +119,51 @@ pub fn derive_client(
 
     // TraitItemFn;
     [struct_def, impl_block].into_iter().collect()
+}
+
+/// Generates code to transform a set of parameters to an enum request.
+///
+/// The enum is assumesd to contain the named variant [`VARIANT_REQUEST`].
+///
+/// The enum request variant is also assumed to match the order, types and number
+/// of arguments exactly.
+fn func_call_to_enum_request(
+    fn_params: Punctuated<FnArg, Comma>,
+    enum_ident: Ident,
+) -> proc_macro2::TokenStream {
+    // we use the field init shorthand
+    let mut enum_params = fn_params
+        .into_iter()
+        .map(|fn_p| {
+            let typed = match fn_p {
+                FnArg::Receiver(r) => panic!("args should not contain self"),
+                FnArg::Typed(t) => t,
+            };
+
+            let param_ident = if let Pat::Ident(i) = &*typed.pat {
+                &i.ident
+            } else {
+                panic!("function arg should be an identifier")
+            };
+
+            param_ident.to_owned()
+        })
+        .collect::<Punctuated<Ident, Comma>>();
+
+    let req_variant = Ident::new(VARIANT_REQUEST, Span::call_site());
+    let resp_variant = Ident::new(VARIANT_RESPONSE, Span::call_site());
+
+    // TODO: remove the unwraps and return a result instead
+    quote! {
+        let request = #enum_ident::#req_variant {
+            #enum_params
+        };
+
+        let response = ctx.invoke(request).await;
+
+        match response {
+            #enum_ident::#req_variant{..} => panic!("variant should be a response"),
+            #enum_ident::#resp_variant(value) => return value
+        }
+    }
 }

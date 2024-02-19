@@ -1,4 +1,4 @@
-//! Remote methods between server and client are defined here.
+//! Remote methods, data structures between server and client are defined here.
 
 use std::path::PathBuf;
 
@@ -17,7 +17,7 @@ pub trait ImmutableFileOps {
 #[remote_interface]
 pub trait MutableFileOps {
     /// Create a new file at the new path
-    async fn create_file(path: PathBuf) -> Result<(), ()>;
+    async fn create_file(path: PathBuf, truncate: bool) -> Result<(bool, i32), ()>;
 }
 
 #[cfg(test)]

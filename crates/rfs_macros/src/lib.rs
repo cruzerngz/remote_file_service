@@ -77,3 +77,20 @@ pub fn remote_interface(
         .collect::<proc_macro2::TokenStream>()
         .into()
 }
+
+/// Converts `camel_case` to `CamelCase`
+fn camel_case_to_pascal_case(input: &str) -> String {
+    input
+        .split("_")
+        .map(|item| {
+            let mut chars = item.chars().collect::<Vec<_>>();
+
+            match chars.first_mut() {
+                Some(c) => *c = c.to_ascii_uppercase(),
+                None => (),
+            }
+
+            chars.iter().collect::<String>()
+        })
+        .collect::<String>()
+}
