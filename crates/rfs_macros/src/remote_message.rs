@@ -84,7 +84,9 @@ pub fn derive_enum(
     (
         cloned_ident,
         quote! {
-            #[doc = concat!("automatically generated from [`", stringify!(#trait_name), "`]")]
+            #[doc = "Method call payload"]
+            #[doc = ""]
+            #[doc = concat!("This enum is automatically generated from [`", stringify!(#trait_name), "`]")]
             #[derive(Debug, serde::Serialize, serde::Deserialize)]
             pub enum #modified_method_ident {
                 #request_variant,

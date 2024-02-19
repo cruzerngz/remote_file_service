@@ -16,6 +16,7 @@ pub trait ImmutableFileOps {
 /// Mutable file operations are defined in this interface.
 #[remote_interface]
 pub trait MutableFileOps {
+    /// Create a new file at the new path
     async fn create_file(path: PathBuf) -> Result<(), ()>;
 }
 
@@ -31,6 +32,8 @@ mod tests {
     /// Test the fully integrated ser/de of the payload of a remote invocation.
     #[test]
     fn test_remote_serde() {
+        type X = ImmutableFileOpsClient;
+
         let message = ImmutableFileOpsReadFile::Request {
             path: Default::default(),
             offset: None,

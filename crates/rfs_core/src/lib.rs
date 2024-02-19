@@ -66,16 +66,16 @@ pub trait RemoteMethodSignature {
 
 /// Macro testing mod
 mod derive_tests {
-    use rfs_macros::remote_interface;
+    // use rfs_macros::remote_interface;
 
-    use crate::RemoteMethodSignature;
+    // use crate::RemoteMethodSignature;
+    // use crate::middleware::ContextManager;
+    // #[remote_interface]
+    // pub trait FileOperations {
+    //     fn get_file_info(path: String, offset: Option<usize>) -> String;
 
-    #[remote_interface]
-    pub trait FileOperations {
-        fn get_file_info(path: String, offset: Option<usize>) -> String;
-
-        fn create_file(path: String) -> bool;
-    }
+    //     fn create_file(path: String) -> bool;
+    // }
 }
 
 // #[cfg(test)]

@@ -3,6 +3,7 @@
 use quote::quote;
 use syn::{punctuated::Punctuated, ItemTrait};
 
+mod client;
 mod remote_message;
 pub(crate) mod remote_method_signature;
 
@@ -50,6 +51,7 @@ pub fn remote_interface(
     });
 
     let derived_enums = methods
+        .clone()
         .map(|m| {
             let (enum_ident, tokens) = remote_message::derive_enum(ident.clone(), m.to_owned());
 
@@ -67,7 +69,10 @@ pub fn remote_interface(
         #item_cloned
     };
 
-    [derived_enums, trait_def]
+    let derived_client_impl =
+        client::derive_client(ident.clone(), methods.map(|m| m.to_owned()).collect());
+
+    [trait_def, derived_enums, derived_client_impl]
         .into_iter()
         .collect::<proc_macro2::TokenStream>()
         .into()

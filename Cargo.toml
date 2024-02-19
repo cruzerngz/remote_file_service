@@ -12,6 +12,7 @@ description = "Course project for CE4013 (Distributed Systems) AY2023 S2"
 log = "0.4"
 futures = "0"
 async-trait = "0"
+# lazy_static = "1"
 serde = { version = "1", features = ["derive"] }
 
 # bin stuffs
