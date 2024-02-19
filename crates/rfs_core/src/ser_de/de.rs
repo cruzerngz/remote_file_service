@@ -34,7 +34,7 @@ macro_rules! deserialize_numeric_primitive {
             validate_bytes! {
                 self.input,
                 consts::PREFIX_NUM
-                => Self::Error::PrefixNotMatched(format!("numeric prefix not found"))
+                => Self::Error::PrefixNotMatched(consts::PREFIX_NUM)
             }
 
             const NUM_BYTES: usize = std::mem::size_of::<ByteSizePrefix>();
@@ -94,7 +94,7 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut RfsDeserializer<'de> {
 
         match prefix == consts::PREFIX_BOOL {
             true => (),
-            false => return Err(super::err::Error::PrefixNotMatched(format!("{}", prefix))),
+            false => return Err(super::err::Error::PrefixNotMatched(consts::PREFIX_BOOL)),
         }
 
         let value = self.input.next_byte();
@@ -102,9 +102,10 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut RfsDeserializer<'de> {
         match (value == consts::BOOL_TRUE, value == consts::BOOL_FALSE) {
             (false, false) => {
                 // TODO: add new error variant, this variant should not be constructed here
-                Err(super::err::Error::PrefixNotMatched(
-                    "unable to match boolean prefixes".to_string(),
-                ))
+                Err(Self::Error::UnexpectedData {
+                    exp: "u8::MAX or u8::MIN".to_string(),
+                    have: value,
+                })
             }
             (is_true, is_false) => {
                 if is_true {
@@ -162,7 +163,7 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut RfsDeserializer<'de> {
         // println!("next byte: {} ({})", next, *next as char);
 
         validate_bytes! {
-            self.input, consts::PREFIX_STR => Self::Error::PrefixNotMatched(format!("str prefix unable to be matched"))
+            self.input, consts::PREFIX_STR => Self::Error::PrefixNotMatched(consts::PREFIX_STR)
         }
 
         let len = self.input.pop_size();
@@ -179,7 +180,7 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut RfsDeserializer<'de> {
         V: de::Visitor<'de>,
     {
         validate_bytes! {
-            self.input, consts::PREFIX_STR => Self::Error::PrefixNotMatched(format!("string prefix unable to be matched"))
+            self.input, consts::PREFIX_STR => Self::Error::PrefixNotMatched(consts::PREFIX_STR)
         }
 
         // let prefix = self.input.next_byte();
@@ -226,13 +227,7 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut RfsDeserializer<'de> {
 
         match opt_prefix == consts::PREFIX_OPTIONAL {
             true => (),
-            false => {
-                return Err(super::err::Error::PrefixNotMatched(format!(
-                    "expected option prefix ({:?}), found {:?}",
-                    consts::PREFIX_OPTIONAL,
-                    opt_prefix
-                )))
-            }
+            false => return Err(Self::Error::PrefixNotMatched(consts::PREFIX_OPTIONAL)),
         }
 
         let variant = self.input.next_byte();
@@ -252,11 +247,9 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut RfsDeserializer<'de> {
 
         match unit_prefix == consts::PREFIX_UNIT {
             true => visitor.visit_unit(),
-            false => Err(crate::ser_de::err::Error::PrefixNotMatched(format!(
-                "expection unit prefix ({:?}), found {:?}",
+            false => Err(crate::ser_de::err::Error::PrefixNotMatched(
                 consts::PREFIX_UNIT,
-                unit_prefix
-            ))),
+            )),
         }
     }
 
@@ -289,17 +282,17 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut RfsDeserializer<'de> {
     {
         // note that vecs and tuples have different delimiters
         validate_bytes! {
-            self.input, consts::PREFIX_SEQ => Self::Error::PrefixNotMatched(format!(""))
+            self.input, consts::PREFIX_SEQ => Self::Error::PrefixNotMatched(consts::PREFIX_SEQ)
         }
         validate_bytes! {
-            self.input, consts::SEQ_OPEN => Self::Error::DelimiterNotFound(consts::SEQ_OPEN as char)
+            self.input, consts::SEQ_OPEN => Self::Error::DelimiterNotFound(consts::SEQ_OPEN )
         }
 
         let accessor = CollectionsAccessor::from_deserializer(self, consts::SEQ_CLOSE);
         let val = visitor.visit_seq(accessor);
 
         validate_bytes! {
-            self.input, consts::SEQ_CLOSE => Self::Error::DelimiterNotFound(consts::SEQ_CLOSE as char)
+            self.input, consts::SEQ_CLOSE => Self::Error::DelimiterNotFound(consts::SEQ_CLOSE )
         }
 
         val
@@ -311,17 +304,17 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut RfsDeserializer<'de> {
     {
         // note that tuples and vecs have different delimiters
         validate_bytes! {
-            self.input, consts::PREFIX_SEQ_CONST => Self::Error::PrefixNotMatched(format!(""))
+            self.input, consts::PREFIX_SEQ_CONST => Self::Error::PrefixNotMatched(consts::PREFIX_SEQ_CONST)
         }
         validate_bytes! {
-            self.input, consts::SEQ_CONST_OPEN => Self::Error::DelimiterNotFound(consts::SEQ_CONST_OPEN as char)
+            self.input, consts::SEQ_CONST_OPEN => Self::Error::DelimiterNotFound(consts::SEQ_CONST_OPEN )
         }
 
         let accessor = CollectionsAccessor::from_deserializer(self, consts::SEQ_CONST_CLOSE);
         let val = visitor.visit_seq(accessor);
 
         validate_bytes! {
-            self.input, consts::SEQ_CONST_CLOSE => Self::Error::DelimiterNotFound(consts::SEQ_CONST_CLOSE as char)
+            self.input, consts::SEQ_CONST_CLOSE => Self::Error::DelimiterNotFound(consts::SEQ_CONST_CLOSE )
         }
 
         val
@@ -344,11 +337,11 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut RfsDeserializer<'de> {
         V: de::Visitor<'de>,
     {
         validate_bytes! {
-            self.input, consts::PREFIX_MAP => Self::Error::PrefixNotMatched(format!(""))
+            self.input, consts::PREFIX_MAP => Self::Error::PrefixNotMatched(consts::PREFIX_MAP)
         }
         validate_bytes! {
             self.input, consts::MAP_OPEN => Self::Error::DelimiterNotFound(
-                consts::MAP_OPEN as char,
+                consts::MAP_OPEN ,
             )
         }
 
@@ -358,7 +351,7 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut RfsDeserializer<'de> {
 
         validate_bytes! {
             self.input, consts::MAP_CLOSE => Self::Error::DelimiterNotFound(
-                consts::MAP_CLOSE as char,
+                consts::MAP_CLOSE ,
             )
         }
 
@@ -388,10 +381,10 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut RfsDeserializer<'de> {
         V: de::Visitor<'de>,
     {
         // let next = self.input.peek().unwrap();
-        // println!("next byte: {} ({})", next, *next as char);
+        // println!("next byte: {} ({})", next, *next );
 
         validate_bytes! {
-            self.input, consts::PREFIX_ENUM => Self::Error::PrefixNotMatched(format!("enum prefix unable to be matched"))
+            self.input, consts::PREFIX_ENUM => Self::Error::PrefixNotMatched(consts::PREFIX_ENUM)
         }
 
         // let next = self.input.peek().unwrap();
@@ -459,7 +452,7 @@ impl<'a, 'de> MapAccess<'de> for CollectionsAccessor<'a, 'de> {
 
         validate_bytes! {
             self.des.input, consts::MAP_ENTRY_OPEN => Self::Error::DelimiterNotFound(
-                consts::MAP_ENTRY_OPEN as char,
+                consts::MAP_ENTRY_OPEN
             )
         }
 
@@ -474,7 +467,7 @@ impl<'a, 'de> MapAccess<'de> for CollectionsAccessor<'a, 'de> {
     {
         validate_bytes! {
             self.des.input, consts::MAP_ENTRY_MID => Self::Error::DelimiterNotFound(
-                consts::MAP_ENTRY_MID as char,
+                consts::MAP_ENTRY_MID
             )
         }
 
@@ -482,7 +475,7 @@ impl<'a, 'de> MapAccess<'de> for CollectionsAccessor<'a, 'de> {
 
         validate_bytes! {
             self.des.input, consts::MAP_ENTRY_CLOSE => Self::Error::DelimiterNotFound(
-                consts::MAP_ENTRY_CLOSE as char,
+                consts::MAP_ENTRY_CLOSE
             )
         }
 
@@ -507,7 +500,7 @@ impl<'a, 'de> MapAccess<'de> for CollectionsAccessor<'a, 'de> {
 
         validate_bytes! {
             self.des.input, consts::MAP_ENTRY_OPEN => Self::Error::DelimiterNotFound(
-                consts::MAP_ENTRY_OPEN as char,
+                consts::MAP_ENTRY_OPEN
             )
         }
 
@@ -515,7 +508,7 @@ impl<'a, 'de> MapAccess<'de> for CollectionsAccessor<'a, 'de> {
 
         validate_bytes! {
             self.des.input, consts::MAP_ENTRY_MID => Self::Error::DelimiterNotFound(
-                consts::MAP_ENTRY_MID as char,
+                consts::MAP_ENTRY_MID
             )
         }
 
@@ -523,7 +516,7 @@ impl<'a, 'de> MapAccess<'de> for CollectionsAccessor<'a, 'de> {
 
         validate_bytes! {
             self.des.input, consts::MAP_ENTRY_CLOSE => Self::Error::DelimiterNotFound(
-                consts::MAP_ENTRY_CLOSE as char,
+                consts::MAP_ENTRY_CLOSE
             )
         }
 
