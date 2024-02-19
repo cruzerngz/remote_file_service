@@ -19,23 +19,12 @@ impl Default for RfsSerializer {
     }
 }
 
-/// Impl serialize unsigned primitives
-macro_rules! serialize_unsigned {
-    ($fn_name: ident: $num_type: ty) => {
+/// Impl serialize for primitives
+macro_rules! serialize_numeric_primitive {
+    ($fn_name: ident, $num_type: ty => $conv_type: ty) => {
         fn $fn_name(self, v: $num_type) -> Result<Self::Ok, Self::Error> {
             self.output.push(consts::PREFIX_NUM);
-            self.output.extend((v as u64).to_be_bytes());
-            Ok(())
-        }
-    };
-}
-
-/// Impl serialize signed primitives
-macro_rules! serialize_signed {
-    ($fn_name: ident: $num_type: ty) => {
-        fn $fn_name(self, v: $num_type) -> Result<Self::Ok, Self::Error> {
-            self.output.push(consts::PREFIX_NUM);
-            self.output.extend((v as i64).to_be_bytes());
+            self.output.extend((v as $conv_type).to_be_bytes());
             Ok(())
         }
     };
@@ -81,15 +70,15 @@ impl<'a> ser::Serializer for &'a mut RfsSerializer {
         Ok(())
     }
 
-    serialize_signed! {serialize_i8: i8}
-    serialize_signed! {serialize_i16: i16}
-    serialize_signed! {serialize_i32: i32}
-    serialize_signed! {serialize_i64: i64}
+    serialize_numeric_primitive! {serialize_i8, i8 => i64}
+    serialize_numeric_primitive! {serialize_i16, i16 => i64}
+    serialize_numeric_primitive! {serialize_i32, i32 => i64}
+    serialize_numeric_primitive! {serialize_i64, i64 => i64}
 
-    serialize_unsigned! {serialize_u8: u8}
-    serialize_unsigned! {serialize_u16: u16}
-    serialize_unsigned! {serialize_u32: u32}
-    serialize_unsigned! {serialize_u64: u64}
+    serialize_numeric_primitive! {serialize_u8, u8 => u64}
+    serialize_numeric_primitive! {serialize_u16, u16 => u64}
+    serialize_numeric_primitive! {serialize_u32, u32 => u64}
+    serialize_numeric_primitive! {serialize_u64, u64 => u64}
 
     fn serialize_f32(self, _: f32) -> Result<Self::Ok, Self::Error> {
         unimplemented!("float serialization is not supported.")

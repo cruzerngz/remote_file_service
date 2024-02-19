@@ -6,6 +6,10 @@ use syn::{punctuated::Punctuated, ItemTrait};
 mod remote_message;
 pub(crate) mod remote_method_signature;
 
+/// Generates the necessary code to implement a remote interface.
+///
+/// As a general rule, paramaters for the remote call can be of any type.
+/// The return type of the call must be an owned type.
 #[proc_macro_attribute]
 pub fn remote_interface(
     attr: proc_macro::TokenStream,

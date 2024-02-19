@@ -84,6 +84,7 @@ pub fn derive_enum(
     (
         cloned_ident,
         quote! {
+            #[derive(serde::Serialize, serde::Deserialize)]
             pub enum #modified_method_ident {
                 #request_variant,
                 #response_variant

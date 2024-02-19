@@ -7,7 +7,7 @@ use serde::{
 
 use crate::ser_de::consts;
 
-use super::consts::ByteSizePrefix;
+use super::{consts::ByteSizePrefix, ByteViewer};
 
 /// This data structure contains the serialized bytes of any arbitrary data structure.
 ///
@@ -24,9 +24,9 @@ impl<'de> RfsDeserializer<'de> {
     }
 }
 
-/// Impl deserialize signed primitives
-macro_rules! deserialize_signed {
-    ($fn_name: ident: $data_type: ty => $visitor_fn: ident) => {
+/// Impl deserialize for primitives
+macro_rules! deserialize_numeric_primitive {
+    ($fn_name: ident: $visitor_fn: ident, $conv_type: ty => $data_type: ty) => {
         fn $fn_name<V>(self, visitor: V) -> Result<V::Value, Self::Error>
         where
             V: de::Visitor<'de>,
@@ -39,27 +39,7 @@ macro_rules! deserialize_signed {
 
             const NUM_BYTES: usize = std::mem::size_of::<ByteSizePrefix>();
             let bytes = self.input.next_bytes_fixed::<NUM_BYTES>(true);
-            visitor.$visitor_fn(i64::from_be_bytes(bytes) as $data_type)
-        }
-    };
-}
-
-/// Impl deserialize unsigned primitives
-macro_rules! deserialize_unsigned {
-    ($fn_name: ident: $data_type: ty => $visitor_fn: ident) => {
-        fn $fn_name<V>(self, visitor: V) -> Result<V::Value, Self::Error>
-        where
-            V: de::Visitor<'de>,
-        {
-            validate_bytes! {
-                self.input,
-                consts::PREFIX_NUM
-                => Self::Error::PrefixNotMatched(format!("numeric prefix not found"))
-            }
-
-            const NUM_BYTES: usize = std::mem::size_of::<ByteSizePrefix>();
-            let bytes = self.input.next_bytes_fixed::<NUM_BYTES>(true);
-            visitor.$visitor_fn(u64::from_be_bytes(bytes) as $data_type)
+            visitor.$visitor_fn(<$conv_type>::from_be_bytes(bytes) as $data_type)
         }
     };
 }
@@ -138,15 +118,15 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut RfsDeserializer<'de> {
         }
     }
 
-    deserialize_signed! {deserialize_i64: i64 => visit_i64}
-    deserialize_signed! {deserialize_i32: i32 => visit_i32}
-    deserialize_signed! {deserialize_i16: i16 => visit_i16}
-    deserialize_signed! {deserialize_i8: i8 => visit_i8}
+    deserialize_numeric_primitive! {deserialize_i64: visit_i64, i64 => i64}
+    deserialize_numeric_primitive! {deserialize_i32: visit_i32, i64 => i32}
+    deserialize_numeric_primitive! {deserialize_i16: visit_i16, i64 => i16}
+    deserialize_numeric_primitive! {deserialize_i8: visit_i8, i64 => i8}
 
-    deserialize_unsigned! {deserialize_u64: u64 => visit_u64}
-    deserialize_unsigned! {deserialize_u32: u32 => visit_u32}
-    deserialize_unsigned! {deserialize_u16: u16 => visit_u16}
-    deserialize_unsigned! {deserialize_u8: u8 => visit_u8}
+    deserialize_numeric_primitive! {deserialize_u64: visit_u64, u64 => u64}
+    deserialize_numeric_primitive! {deserialize_u32: visit_u32, u64 => u32}
+    deserialize_numeric_primitive! {deserialize_u16: visit_u16, u64 => u16}
+    deserialize_numeric_primitive! {deserialize_u8: visit_u8, u64 => u8}
 
     fn deserialize_f32<V>(self, _: V) -> Result<V::Value, Self::Error>
     where
@@ -434,108 +414,6 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut RfsDeserializer<'de> {
         V: de::Visitor<'de>,
     {
         unimplemented!()
-    }
-}
-
-/// A reference into an existing slice of bytes.
-///
-/// There are multiple accessor implementations here.
-/// These will be used when deserializing collections or maps,
-/// such as vectors, maps, structs and enums.
-///
-struct ByteViewer<'arr> {
-    slice: &'arr [u8],
-    size: usize,
-    offset: usize,
-}
-
-#[allow(unused)]
-impl<'arr> ByteViewer<'arr> {
-    /// Create a new viewer on a byte slice
-    pub fn from_slice(s: &'arr [u8]) -> Self {
-        Self {
-            slice: s,
-            size: s.len(),
-            offset: 0,
-        }
-    }
-
-    /// Returns the current slice starting from the internal
-    /// offset as an iterator.
-    pub fn curr_iter(&self) -> std::slice::Iter<'arr, u8> {
-        let curr_view = &self.slice[self.offset..];
-        curr_view.iter()
-    }
-
-    /// Advance the view on the underlying slice.
-    ///
-    /// If the new offset is larger than the size of the slice,
-    /// this will return an error.
-    #[must_use]
-    pub fn advance(&mut self, steps: usize) -> Result<(), ()> {
-        match (self.offset + steps) < self.size {
-            true => {
-                self.offset += steps;
-
-                Ok(())
-            }
-            false => Err(()),
-        }
-    }
-
-    /// Peek at the next byte in the slice
-    pub fn peek(&self) -> Option<&u8> {
-        self.slice.get(self.offset)
-    }
-
-    /// Takes the next 8 bytes and parses them into a [ByteSizePrefix].
-    /// As most contiguous (variable len) collections have their sizes stored at the start,
-    /// this is used to retrieve the size of the collection (in bytes) and advance the viewer.
-    ///
-    /// This can also be used to retrieve any primitive unsigned numeric type, as all numeric types are
-    /// promoted to 64-bits during serialization.
-    pub fn pop_size(&mut self) -> ByteSizePrefix {
-        const NUM_BYTES: usize = std::mem::size_of::<ByteSizePrefix>();
-        let size_bytes = self.next_bytes_fixed::<NUM_BYTES>(true);
-        ByteSizePrefix::from_be_bytes(size_bytes)
-    }
-
-    /// Return the next byte and advance the view
-    pub fn next_byte(&mut self) -> u8 {
-        let b = self.slice[self.offset];
-        self.offset += 1;
-
-        b
-    }
-
-    /// Returns the next slice of bytes and advances the counter.
-    /// If peeking, the counter does not advance.
-    ///
-    /// There are no explicit bounds check on the allowed size here.
-    pub fn next_bytes(&mut self, size: usize, advance: bool) -> &'arr [u8] {
-        let view = &self.slice[self.offset..(self.offset + size)];
-
-        match advance {
-            true => self.offset += size,
-            false => (),
-        }
-
-        view
-    }
-
-    /// Returns a copy of the next slice of bytes as a fixed-size array.
-    ///
-    /// If `advance` is set to `true`, the internal counter is advanced.
-    pub fn next_bytes_fixed<const ARR_SIZE: usize>(&mut self, advance: bool) -> [u8; ARR_SIZE] {
-        let view = &self.slice[self.offset..(self.offset + ARR_SIZE)];
-
-        match advance {
-            true => self.offset += ARR_SIZE,
-            false => (),
-        }
-
-        view.try_into()
-            .expect("slice and array should have the same length")
     }
 }
 
