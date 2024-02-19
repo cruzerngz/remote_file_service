@@ -2,9 +2,9 @@
 
 use std::path::PathBuf;
 
-use rfs_macros::remote_interface;
+use rfs_core::remote_interface;
 
-use crate::RemoteMethodSignature;
+use rfs_core::RemoteMethodSignature;
 
 /// Immutable file operations are defined in this interface.
 #[remote_interface]
@@ -20,11 +20,11 @@ pub trait MutableFileOps {
 }
 
 #[cfg(test)]
+#[allow(unused)]
 mod tests {
 
-    use std::{fs::File, io::Write};
-
-    use crate::RemotelyInvocable;
+    use rfs_core::RemotelyInvocable;
+    use std::io::Write;
 
     use super::*;
 
@@ -44,7 +44,7 @@ mod tests {
 
         println!("{:?}", des);
 
-        let mut x = File::create("serialized").unwrap();
-        x.write_all(&ser).unwrap();
+        // let mut x = std::fs::File::create("serialized").unwrap();
+        // x.write_all(&ser).unwrap();
     }
 }

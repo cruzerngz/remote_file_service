@@ -2,7 +2,6 @@
 //! both the server and client.
 
 pub mod middleware;
-pub mod remote_methods;
 pub mod ser_de;
 
 pub use rfs_macros::*;

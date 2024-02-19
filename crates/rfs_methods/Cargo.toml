@@ -1,0 +1,13 @@
+[package]
+name = "rfs_methods"
+version = "0.1.0"
+edition.workspace = true
+description = "remote method invocation definitions between server and client"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+rfs_core = { path = "../rfs_core" }
+
+serde = { workspace = true }
+async-trait = { workspace = true }

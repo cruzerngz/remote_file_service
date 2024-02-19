@@ -171,6 +171,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "rfs_methods"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "rfs_core",
+ "serde",
+]
+
+[[package]]
 name = "rfs_server"
 version = "0.1.0"
 dependencies = [
