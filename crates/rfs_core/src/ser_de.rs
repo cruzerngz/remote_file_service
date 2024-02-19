@@ -12,10 +12,8 @@ mod ser;
 /// Serialize a data structure to a vector of bytes
 pub fn serialize<T: serde::Serialize>(value: &T) -> SerDeResult<Vec<u8>> {
     let mut serializer = ser::RfsSerializer::default();
-
     value.serialize(&mut serializer)?;
 
-    // Ok(pack_bytes(&serializer.output))
     Ok(serializer.output)
 }
 
@@ -24,11 +22,7 @@ pub fn deserialize<T>(bytes: &[u8]) -> SerDeResult<T>
 where
     T: for<'a> serde::Deserialize<'a>,
 {
-    // let unpacked = unpack_bytes(bytes);
-    // let mut deserializer = de::RfsDeserializer::from_slice(&unpacked);
-
     let mut deserializer = de::RfsDeserializer::from_slice(bytes);
-
     T::deserialize(&mut deserializer)
 }
 
@@ -48,6 +42,7 @@ where
 {
     deserialize(&byte_packer::unpack_bytes(bytes))
 }
+
 /// A reference into an existing slice of bytes.
 ///
 /// This data structure can perform various (immutable) operations on a slice of
@@ -163,6 +158,10 @@ impl<'arr> ByteViewer<'arr> {
 
     /// Find the next byte that matches and returns the offset.
     pub fn find_byte(&self, byte: u8) -> Option<usize> {
+        if self.is_end() {
+            return None;
+        }
+
         self.curr_iter()
             .enumerate()
             .find_map(|(idx, b)| match *b == byte {

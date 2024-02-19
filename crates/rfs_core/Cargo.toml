@@ -10,3 +10,4 @@ description = "RPC impls and common code library"
 rfs_macros = { path = "../rfs_macros" }
 
 serde = { workspace = true }
+async-trait = { workspace = true }

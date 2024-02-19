@@ -3,7 +3,7 @@ use std::path::PathBuf;
 mod context_manager;
 mod ser_de;
 
-pub use ser_de::{deserialize, serialize};
+pub use ser_de::{deserialize, deserialize_packed, serialize, serialize_packed};
 
 /// Remote file operations interface
 pub trait RemoteFileOperations {
@@ -52,13 +52,13 @@ mod tests {
 
     #[remote_interface]
     pub trait ASD {
-        fn get_file_info(path: String, offset: Option<usize>) -> String;
+        async fn get_file_info(path: String, offset: Option<usize>) -> String;
 
-        fn create_file(path: String) -> bool;
+        async fn create_file(path: String) -> bool;
     }
 
     #[test]
-    fn asd() {
+    fn test_remote_interface_expansion() {
         let s = S::remote_method_signature();
 
         let res = ASDCreateFileMessage::remote_method_signature();

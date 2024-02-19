@@ -6,7 +6,7 @@ use core::num;
 
 use crate::ser_de::ByteViewer;
 
-/// The delimiter used to indicate that there is a packed sequence of 0 bits.
+/// The delimiter that indicates a packed sequence of zeroes.
 const BYTE_COUNT_DELIM: u8 = ':' as u8;
 
 /// Pack a sequence of bytes

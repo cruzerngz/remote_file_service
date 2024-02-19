@@ -15,6 +15,8 @@ pub fn remote_interface(
     attr: proc_macro::TokenStream,
     item: proc_macro::TokenStream,
 ) -> proc_macro::TokenStream {
+    let item_cloned = proc_macro2::TokenStream::from(item.clone());
+
     let ItemTrait {
         attrs,
         vis,
@@ -59,5 +61,14 @@ pub fn remote_interface(
         .flatten()
         .collect::<proc_macro2::TokenStream>();
 
-    derived_enums.into()
+    // pass back the trait definition
+    let trait_def = quote! {
+        #[async_trait::async_trait]
+        #item_cloned
+    };
+
+    [derived_enums, trait_def]
+        .into_iter()
+        .collect::<proc_macro2::TokenStream>()
+        .into()
 }
