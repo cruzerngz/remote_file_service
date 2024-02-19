@@ -149,6 +149,7 @@ name = "rfs_client"
 version = "0.1.0"
 dependencies = [
  "futures",
+ "rfs_core",
 ]
 
 [[package]]
@@ -172,6 +173,9 @@ dependencies = [
 [[package]]
 name = "rfs_server"
 version = "0.1.0"
+dependencies = [
+ "rfs_core",
+]
 
 [[package]]
 name = "serde"

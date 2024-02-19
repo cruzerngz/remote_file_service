@@ -7,3 +7,4 @@ description = "Server binary"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+rfs_core = { path = "../rfs_core" }
