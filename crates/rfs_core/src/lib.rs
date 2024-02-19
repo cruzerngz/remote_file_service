@@ -1,32 +1,68 @@
-use std::path::PathBuf;
+//! This crate contains core implementations and traits for
+//! both the server and client.
 
-mod context_manager;
-mod ser_de;
+pub mod middleware;
+pub mod remote_methods;
+pub mod ser_de;
 
+pub use rfs_macros::*;
 pub use ser_de::{deserialize, deserialize_packed, serialize, serialize_packed};
 
-/// Remote file operations interface
-pub trait RemoteFileOperations {
-    /// Get the contents of a file.
+/// A type that satistifies these bounds will support
+/// remote invocation.
+pub trait RemotelyInvocable:
+    RemoteMethodSignature + serde::Serialize + for<'a> serde::Deserialize<'a>
+{
+    /// Serializes the invocation.
     ///
-    fn get_file(path: PathBuf, offset: Option<usize>) -> String;
+    /// This method is automatically implemented and should not be overidden.
+    fn invoke_bytes(&self) -> Vec<u8> {
+        let serialized = crate::serialize_packed(&self).unwrap();
+
+        let header = Self::remote_method_signature();
+
+        [header, &serialized].concat()
+    }
+
+    /// Attempt to process and deserialize a set of bytes to `Self`.
+    ///
+    /// This method is automatically implemented and should not be overidden.
+    fn process_invocation(bytes: &[u8]) -> Result<Self, ()> {
+        let signature = Self::remote_method_signature();
+
+        match bytes.starts_with(signature) {
+            true => (),
+            false => return Err(()),
+        }
+
+        let data = &bytes[(signature.len())..];
+
+        crate::deserialize_packed(data).map_err(|_| ())
+    }
 }
 
-/// This trait will be derived from any interface that has the
+// blanket implementation
+impl<T> RemotelyInvocable for T where
+    T: RemoteMethodSignature + serde::Serialize + for<'a> serde::Deserialize<'a>
+{
+}
+
+/// This trait is automatically derived with the data structure generated from
+/// the `#[remote_interface]` proc-macro.
+pub trait RemoteRequest {
+    /// Checks if the payload is a request
+    fn is_request(&self) -> bool;
+    /// Checks if the payload is a response
+    fn is_response(&self) -> bool;
+}
+
+/// This trait is automatically derived from any interface that has the
 /// `#[remote_interface]` proc-macro.
-trait RemoteMethodSignature {
+pub trait RemoteMethodSignature {
     /// Returns the method signature of a remote interface method.
     ///
     /// Used for routing method calls on the server side.
     fn remote_method_signature() -> &'static [u8];
-}
-
-struct S;
-
-impl RemoteMethodSignature for S {
-    fn remote_method_signature() -> &'static [u8] {
-        "Function::method".as_bytes()
-    }
 }
 
 /// Macro testing mod
@@ -43,29 +79,29 @@ mod derive_tests {
     }
 }
 
-#[cfg(test)]
-#[allow(unused)]
-mod tests {
-    use super::*;
-    use derive_tests::FileOperationsGetFileInfoMessage;
-    use rfs_macros::remote_interface;
+// #[cfg(test)]
+// #[allow(unused)]
+// mod tests {
+//     use super::*;
+//     use derive_tests::FileOperationsGetFileInfoMessage;
+//     use rfs_macros::remote_interface;
 
-    #[remote_interface]
-    pub trait ASD {
-        async fn get_file_info(path: String, offset: Option<usize>) -> String;
+//     #[remote_interface]
+//     pub trait ASD {
+//         async fn get_file_info(path: String, offset: Option<usize>) -> String;
 
-        async fn create_file(path: String) -> bool;
-    }
+//         async fn create_file(path: PathBuf) -> bool;
+//     }
 
-    #[test]
-    fn test_remote_interface_expansion() {
-        let s = S::remote_method_signature();
+//     #[test]
+//     fn test_remote_interface_expansion() {
+//         let s = S::remote_method_signature();
 
-        let res = ASDCreateFileMessage::remote_method_signature();
-        let res = std::str::from_utf8(res).unwrap();
+//         let res = ASDCreateFileMessage::remote_method_signature();
+//         let res = std::str::from_utf8(res).unwrap();
 
-        println!("{:?}", s);
+//         println!("{:?}", s);
 
-        println!("{:?}", res);
-    }
-}
+//         println!("{:?}", res);
+//     }
+// }

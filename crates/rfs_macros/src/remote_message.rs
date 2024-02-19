@@ -22,7 +22,7 @@ pub fn derive_enum(
         let formatted_ident = camel_case_to_pascal_case(&str);
 
         syn::Ident::new(
-            &format!("{}{}Message", trait_name, formatted_ident),
+            &format!("{}{}", trait_name, formatted_ident),
             trait_method.sig.ident.span(),
         )
     };
@@ -84,7 +84,8 @@ pub fn derive_enum(
     (
         cloned_ident,
         quote! {
-            #[derive(serde::Serialize, serde::Deserialize)]
+            #[doc = concat!("automatically generated from [`", stringify!(#trait_name), "`]")]
+            #[derive(Debug, serde::Serialize, serde::Deserialize)]
             pub enum #modified_method_ident {
                 #request_variant,
                 #response_variant
