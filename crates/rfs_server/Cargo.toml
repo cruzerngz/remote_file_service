@@ -8,3 +8,7 @@ description = "Server binary"
 
 [dependencies]
 rfs_core = { path = "../rfs_core" }
+rfs_methods = { path = "../rfs_methods" }
+
+clap = { workspace = true }
+tokio = { workspace = true }

@@ -33,6 +33,7 @@ mod tests {
     #[test]
     fn test_remote_serde() {
         type X = ImmutableFileOpsClient;
+        let x = ImmutableFileOpsClient::read_file(todo!(), todo!(), todo!());
 
         let message = ImmutableFileOpsReadFile::Request {
             path: Default::default(),

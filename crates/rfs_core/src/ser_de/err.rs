@@ -1,4 +1,6 @@
 //! Error implementations
+#![allow(unused)]
+
 
 use serde::{de, ser};
 pub type SerDeResult<R> = Result<R, Error>;

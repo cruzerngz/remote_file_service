@@ -7,7 +7,7 @@ use proc_macro2::{Ident, Span};
 use quote::{quote, ToTokens};
 use syn::{
     punctuated::Punctuated, spanned::Spanned, token::Comma, Block, Field, FieldValue, FnArg,
-    ImplItemFn, Pat, Signature, TraitItemFn,
+    ImplItemFn, Pat, ReturnType, Signature, TraitItemFn,
 };
 
 use crate::{
@@ -59,14 +59,6 @@ pub fn derive_client(
     let NEW_FUNC_ARG: FnArg =
         syn::parse2(quote! {ctx: rfs_core::middleware::ContextManager}).unwrap();
 
-    // same thing for this one
-    #[allow(non_snake_case)]
-    let FUNC_BODY: Block = syn::parse2(quote! {{
-            let x = false;
-            todo!()
-    }})
-    .unwrap();
-
     // struct definition
     let struct_name = Ident::new(&format!("{}Client", &trait_name), trait_name.span());
     let struct_def = quote! {
@@ -91,6 +83,10 @@ pub fn derive_client(
             );
 
             signature.inputs.insert(0, NEW_FUNC_ARG.clone());
+            signature.output = wrap_in_result(
+                signature.output,
+                syn::parse2(quote! {rfs_core::middleware::InvokeError}).unwrap(),
+            );
 
             let new_method = ImplItemFn {
                 attrs: method.attrs,
@@ -159,11 +155,25 @@ fn func_call_to_enum_request(
             #enum_params
         };
 
-        let response = ctx.invoke(request).await;
+        let response = ctx.invoke(request).await?;
 
         match response {
-            #enum_ident::#req_variant{..} => panic!("variant should be a response"),
-            #enum_ident::#resp_variant(value) => return value
+            #enum_ident::#req_variant{..} => unimplemented!("this branch is never taken"),
+            #enum_ident::#resp_variant(value) => return Ok(value)
         }
+    }
+}
+
+/// Transform the given return type as a result with an error.
+fn wrap_in_result(mut ret: ReturnType, err_type: syn::Path) -> ReturnType {
+    match ret {
+        ReturnType::Default => syn::parse2::<ReturnType>(quote! {
+            -> Result<(), #err_type>
+        })
+        .unwrap(),
+        ReturnType::Type(t, ty) => syn::parse2::<ReturnType>(quote! {
+            -> Result<#ty, #err_type>
+        })
+        .unwrap(),
     }
 }

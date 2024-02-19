@@ -8,6 +8,18 @@ use std::fmt::Debug;
 
 use crate::RemotelyInvocable;
 
+/// Method invocation errors
+#[derive(Debug)]
+pub enum InvokeError {
+    /// The remote is unable to find a handler for the given payload.
+    ///
+    /// This should be the most common error returned from an invocation.
+    HandlerNotFound,
+
+    /// The context manager is unable to get a response from the remote
+    RequestTimedOut,
+}
+
 /// The context manager (middleware) for remote invocations.
 ///
 /// The context manager handles the transmission of data to its server-side counterpart,
@@ -80,7 +92,7 @@ impl ContextManager {
     }
 
     /// Send an invocation over the network, and returns the result.
-    pub async fn invoke<Payload: RemotelyInvocable>(&self, payload: Payload) -> Payload {
+    pub async fn invoke<P: RemotelyInvocable>(&self, payload: P) -> Result<P, InvokeError> {
         let data = payload.invoke_bytes();
 
         todo!()
