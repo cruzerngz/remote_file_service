@@ -28,7 +28,7 @@ pub fn derive_remote_call(payload_type: Ident, method_sig: Signature) -> proc_ma
     let fn_pointer = wrap_fn_in_async(method_sig);
 
     let req_variant = Ident::new(VARIANT_REQUEST, Span::call_site());
-        let resp_variant = Ident::new(VARIANT_RESPONSE, Span::call_site());
+    let resp_variant = Ident::new(VARIANT_RESPONSE, Span::call_site());
 
     quote! {
         #[async_trait::async_trait]

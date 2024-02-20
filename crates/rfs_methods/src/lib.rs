@@ -14,7 +14,9 @@ pub trait ImmutableFileOps {
 
     // this is implemented by remote-interface
     // async fn read_file_payload(payload: ImmutableFileOpsReadFile) -> Vec<u8> {
-    //
+    //      Self::read_file(
+    //          .. params
+    //      ).await
     // }
     // type X  = bool;
 }

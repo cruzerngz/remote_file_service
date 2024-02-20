@@ -1,15 +1,14 @@
-
 #![allow(unused)]
 
 use quote::quote;
 use syn::{punctuated::Punctuated, ItemTrait};
 
 mod client;
+mod extend_remote_interface;
 #[cfg(notused)]
 mod remote_call;
 mod remote_message;
 pub(crate) mod remote_method_signature;
-mod extend_remote_interface;
 
 /// Generates the necessary code to implement a remote interface.
 ///
@@ -77,10 +76,12 @@ pub fn remote_interface(
         .into_iter()
         .collect::<proc_macro2::TokenStream>();
 
-    // pass back the trait definition
+    // pass back the new trait definition
+    let new_trait_def: proc_macro2::TokenStream =
+        extend_remote_interface::extend_trait(item_cloned.into()).into();
     let trait_def = quote! {
         #[async_trait::async_trait]
-        #item_cloned
+        #new_trait_def
     };
 
     // generate client struct
@@ -93,7 +94,7 @@ pub fn remote_interface(
     //     .map(|(ident, sig)|remote_call::derive_remote_call(ident, sig))
     //     .collect::<proc_macro2::TokenStream>();
 
-    [trait_def, derived_enums, derived_client_impl]//, remote_call_impls]
+    [trait_def, derived_enums, derived_client_impl] //, remote_call_impls]
         .into_iter()
         .collect::<proc_macro2::TokenStream>()
         .into()
