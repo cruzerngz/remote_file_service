@@ -10,8 +10,24 @@ pub(crate) mod remote_method_signature;
 
 /// Generates the necessary code to implement a remote interface.
 ///
-/// As a general rule, paramaters for the remote call can be of any type.
-/// The return type of the call must be an owned type.
+/// As a general rule, parameters and return values can be of any type as long as
+/// they are owned types.
+///
+/// ```no_run
+/// /// This trait defines a remote interface.
+/// ///
+/// /// In the current implementation, traits do not supported provided methods
+/// /// (default methods). All methods defined here must be implemented
+/// /// by the remote.
+/// #[remote_interface]
+/// pub trait SomeMethods {
+///     /// Methods must be declared as async, and must not contain
+///     /// receivers (&self, &mut self).
+///     ///
+///     /// A mutable receiver will be added after processing by the macro.
+///     async fn do_something(left: usize, right: usize) -> usize;
+/// }
+/// ```
 #[proc_macro_attribute]
 pub fn remote_interface(
     attr: proc_macro::TokenStream,
