@@ -12,6 +12,9 @@ pub trait ImmutableFileOps {
     /// Read the contents of a file.
     async fn read_file(path: PathBuf, offset: Option<usize>) -> Vec<u8>;
 
+    /// List all files in the current directory
+    async fn ls(path: PathBuf) -> Vec<String>;
+
     // this is implemented by remote-interface
     // async fn read_file_payload(payload: ImmutableFileOpsReadFile) -> Vec<u8> {
     //      Self::read_file(
@@ -28,31 +31,25 @@ pub trait MutableFileOps {
     async fn create_file(path: PathBuf, truncate: bool) -> Result<(bool, i32), ()>;
 }
 
+/// Sanity check interface
+#[remote_interface]
+pub trait SimpleOps {
+    /// Pass something to the remote to log.
+    async fn say_hello(content: String) -> bool;
+
+    /// Compute the Nth fibonacci number and return the result.
+    ///
+    /// This is supposed to simulate an expensive computation.
+    async fn compute_fib(fib_num: u8) -> u64;
+}
+
 #[cfg(test)]
 #[allow(unused)]
 mod tests {
 
-    use async_trait::async_trait;
     use rfs_core::RemotelyInvocable;
-    use std::io::Write;
 
     use super::*;
-
-    struct S;
-
-    #[async_trait]
-    impl ImmutableFileOps for S {
-        async fn read_file(&mut self, path: PathBuf, offset: Option<usize>) -> Vec<u8> {
-            todo!()
-        }
-    }
-
-    #[async_trait]
-    impl MutableFileOps for S {
-        async fn create_file(&mut self, path: PathBuf, truncate: bool) -> Result<(bool, i32), ()> {
-            todo!()
-        }
-    }
 
     /// Test the fully integrated ser/de of the payload of a remote invocation.
     #[test]

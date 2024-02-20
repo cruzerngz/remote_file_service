@@ -1,6 +1,8 @@
+#![allow(unused)]
+
 use std::{net::SocketAddrV4, str::FromStr};
 
-use rfs_core::middleware::RequestServer;
+use rfs_core::middleware::{Dispatcher, RequestServer};
 
 use crate::server::RfsServer;
 
@@ -8,13 +10,13 @@ mod server;
 
 #[tokio::main]
 async fn main() {
-    let mut server = RfsServer {
+    let server = RfsServer {
         home: Default::default(),
     };
 
-    // server
-    //     .serve(SocketAddrV4::from_str("127.0.0.1:2222").unwrap())
-    //     .await;
+    let mut dispatcher = Dispatcher::from_handler(server);
 
-    println!("Hello, world!")
+    dispatcher.dispatch().await;
+
+    return;
 }

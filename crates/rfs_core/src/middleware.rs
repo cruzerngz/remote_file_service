@@ -4,11 +4,14 @@
 //!
 #![allow(unused)]
 
+mod context_manager;
+
 use std::fmt::Debug;
 
 use async_trait::async_trait;
 
 use crate::RemotelyInvocable;
+pub use context_manager::ContextManager;
 
 /// Method invocation errors
 #[derive(Debug)]
@@ -27,18 +30,12 @@ pub enum InvokeError {
 
     /// Deserialization of the payload failed
     DeserializationFailed,
-}
 
-/// The context manager for the client.
-///
-/// The context manager handles the transmission of data to its server-side counterpart,
-/// the dispatcher.
-///
-/// Integrity checks, validation, etc. are performed here.
-#[derive(Debug)]
-pub struct ContextManager {
-    /// The target address and port
-    target: std::net::SocketAddrV4,
+    /// Connection to the remote was unsuccessful
+    RemoteConnectionFailed,
+
+    /// Unable to send data to the remote
+    DataTransmissionFailed,
 }
 
 /// The dispatcher for remote invocations.
@@ -47,9 +44,26 @@ pub struct ContextManager {
 /// appropriate handlers.
 ///
 #[derive(Debug)]
-pub struct Dispatcher<H: Debug> {
+pub struct Dispatcher<H: Debug + PayloadHandler> {
     // Inner data structure that implements logic for remote interfaces
     handler: H,
+}
+
+impl<H> Dispatcher<H>
+where
+    H: Debug + PayloadHandler,
+{
+    /// Create a new dispatcher from the handler
+    pub fn from_handler(handler: H) -> Self {
+        Self { handler }
+    }
+
+    /// Runs the dispatcher indefinitely.
+    pub async fn dispatch(&mut self) {
+        loop {}
+
+        todo!()
+    }
 }
 
 /// Route and handle the bytes of a remote method invocation.
@@ -58,23 +72,23 @@ pub struct Dispatcher<H: Debug> {
 /// routes the bytes to the appropriate method call, and returns the
 /// result.
 #[async_trait]
-pub trait DispatchHandler {
-    async fn dispatch(&mut self, payload_bytes: &[u8]) -> Result<Vec<u8>, InvokeError>;
+pub trait PayloadHandler {
+    async fn handle_payload(&mut self, payload_bytes: &[u8]) -> Result<Vec<u8>, InvokeError>;
 }
 
 /// Serve requests by binding to a port.
 ///
 /// The default implementation does not cache requests.
 #[async_trait]
-pub trait RequestServer: DispatchHandler {
+pub trait RequestServer: PayloadHandler {
     async fn serve(&mut self, addr: std::net::SocketAddrV4) {
         todo!()
     }
 }
 
-impl<T> RequestServer for T where T: DispatchHandler {}
+impl<T> RequestServer for T where T: PayloadHandler {}
 
-/// This macro implements [`DispatchHandler`] with a specified number of routes.
+/// This macro implements [`PayloadHandler`] with a specified number of routes.
 ///
 /// ```no_run
 /// /// Server definition (and any fields)
@@ -92,7 +106,7 @@ impl<T> RequestServer for T where T: DispatchHandler {}
 /// }
 ///
 ///
-/// dispatcher_handler!{
+/// handle_payloads! {
 ///     Server,
 ///     // we use the '`method_name`_payload' method.
 ///      ImmutableFileOpsReadFile => ImmutableFileOps::read_file_payload
@@ -100,13 +114,13 @@ impl<T> RequestServer for T where T: DispatchHandler {}
 /// }
 /// ```
 #[macro_export]
-macro_rules! dispatcher_handler {
+macro_rules! handle_payloads {
     ($server_ty: ty,
         $($payload_ty: ty => $trait: ident :: $method: ident),+
     ) => {
         #[async_trait::async_trait]
-        impl DispatchHandler for $server_ty {
-            async fn dispatch(&mut self, payload_bytes: &[u8]) -> Result<Vec<u8>, rfs_core::middleware::InvokeError> {
+        impl PayloadHandler for $server_ty {
+            async fn handle_payload(&mut self, payload_bytes: &[u8]) -> Result<Vec<u8>, rfs_core::middleware::InvokeError> {
 
                 $(if let Ok(payload) = <$payload_ty>::process_invocation(payload_bytes) {
                     let res = self.$method(payload).await;
@@ -120,22 +134,6 @@ macro_rules! dispatcher_handler {
             }
         }
     };
-}
-
-impl ContextManager {
-    /// Create a new context manager, along with a target IP and port.
-    pub async fn new(target: std::net::SocketAddrV4) -> Self {
-        Self { target }
-    }
-
-    /// Send an invocation over the network, and returns the result.
-    pub async fn invoke<P: RemotelyInvocable>(&self, payload: P) -> Result<P, InvokeError> {
-        let data = payload.invoke_bytes();
-
-        // send to server and wait for a reply
-
-        todo!()
-    }
 }
 
 #[cfg(test)]

@@ -13,3 +13,4 @@ rfs_methods = { path = "../rfs_methods" }
 async-trait = { workspace = true }
 clap = { workspace = true }
 tokio = { workspace = true }
+futures = { workspace = true }
