@@ -82,9 +82,10 @@ impl<T> RequestServer for T where T: DispatchHandler {}
 /// pub struct Server;
 ///
 /// // the remote interface implementation
+/// #[async_trait::async_trait]
 /// impl ImmutableFileOps for Server {
 ///     /// Read the contents of a file.
-///     async fn read_file(path: PathBuf, offset: Option<usize>) -> Vec<u8> {
+///     async fn read_file(&mut self, path: PathBuf, offset: Option<usize>) -> Vec<u8> {
 ///         // ... implementation
 ///         todo!()
 ///     }

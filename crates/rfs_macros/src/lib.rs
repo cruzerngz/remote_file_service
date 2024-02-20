@@ -5,8 +5,6 @@ use syn::{punctuated::Punctuated, ItemTrait};
 
 mod client;
 mod extend_remote_interface;
-#[cfg(notused)]
-mod remote_call;
 mod remote_message;
 pub(crate) mod remote_method_signature;
 
@@ -42,15 +40,6 @@ pub fn remote_interface(
         } else {
             None
         }
-
-        // match item {
-        //     syn::TraitItem::Const(_) => todo!(),
-        //     syn::TraitItem::Fn(_) => todo!(),
-        //     syn::TraitItem::Type(_) => todo!(),
-        //     syn::TraitItem::Macro(_) => todo!(),
-        //     syn::TraitItem::Verbatim(_) => todo!(),
-        //     _ => todo!(),
-        // }
     });
 
     let (derived_enum_idents_sigs, derived_enums): (Vec<_>, Vec<_>) = methods
@@ -88,13 +77,7 @@ pub fn remote_interface(
     let derived_client_impl =
         client::derive_client(ident.clone(), methods.map(|m| m.to_owned()).collect());
 
-    // generate implementations for RemoteCall
-    // let remote_call_impls = derived_enum_idents_sigs
-    //     .into_iter()
-    //     .map(|(ident, sig)|remote_call::derive_remote_call(ident, sig))
-    //     .collect::<proc_macro2::TokenStream>();
-
-    [trait_def, derived_enums, derived_client_impl] //, remote_call_impls]
+    [trait_def, derived_enums, derived_client_impl]
         .into_iter()
         .collect::<proc_macro2::TokenStream>()
         .into()

@@ -340,6 +340,7 @@ name = "rfs_client"
 version = "0.1.0"
 dependencies = [
  "clap",
+ "rfs_core",
  "rfs_methods",
  "tokio",
 ]
