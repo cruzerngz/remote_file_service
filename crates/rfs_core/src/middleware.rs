@@ -6,6 +6,8 @@
 
 use std::fmt::Debug;
 
+use async_trait::async_trait;
+
 use crate::RemotelyInvocable;
 
 /// Method invocation errors
@@ -55,8 +57,9 @@ pub struct Dispatcher<H: Debug> {
 /// The method proceseses the bytes of a remote method invocation,
 /// routes the bytes to the appropriate method call, and returns the
 /// result.
+#[async_trait]
 pub trait DispatchHandler {
-    fn dispatch(&mut self, payload_bytes: &[u8]) -> Result<Vec<u8>, InvokeError>;
+    async fn dispatch(&mut self, payload_bytes: &[u8]) -> Result<Vec<u8>, InvokeError>;
 }
 
 /// This macro implements [`DispatchHandler`] with a specified number of routes.
@@ -78,17 +81,29 @@ pub trait DispatchHandler {
 ///
 /// dispatcher_handler!{
 ///     Server,
-///      ImmutableFileOpsReadFile => ImmutableFileOps::read_file // this is one path
+///     // we use the '`method_name`_payload' method.
+///      ImmutableFileOpsReadFile => ImmutableFileOps::read_file_payload
+///     // an arbitrary number of paths can be added
 /// }
 /// ```
 #[macro_export]
 macro_rules! dispatcher_handler {
     ($server_ty: ty,
-        $($payload: ty => $trait: ident ::$method: ident),+
+        $($payload_ty: ty => $trait: ident :: $method: ident),+
     ) => {
+        #[async_trait::async_trait]
         impl DispatchHandler for $server_ty {
-            fn dispatch(&mut self, payload_bytes: &[u8]) -> Result<Vec<u8>, InvokeError> {
-                todo!()
+            async fn dispatch(&mut self, payload_bytes: &[u8]) -> Result<Vec<u8>, rfs_core::middleware::InvokeError> {
+
+                $(if let Ok(payload) = <$payload_ty>::process_invocation(payload_bytes) {
+                    let res = Self::$method(payload).await;
+                    let resp = <$payload_ty>::Response(res);
+                    let export_payload = resp.invoke_bytes();
+                    return Ok(export_payload);
+                })+
+
+                // no matches, error out
+                Err(rfs_core::middleware::InvokeError::HandlerNotFound)
             }
         }
     };

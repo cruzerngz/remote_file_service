@@ -4,6 +4,7 @@
 use std::path::PathBuf;
 
 use async_trait::async_trait;
+use rfs_core::{dispatcher_handler, middleware::DispatchHandler, RemotelyInvocable};
 use rfs_methods::*;
 
 #[derive(Debug)]
@@ -25,3 +26,29 @@ impl MutableFileOps for RfsServer {
         todo!()
     }
 }
+
+// assign all possible dispatch paths
+dispatcher_handler! {
+    RfsServer,
+    ImmutableFileOpsReadFile => ImmutableFileOps::read_file_payload,
+    MutableFileOpsCreateFile => MutableFileOps::create_file_payload
+}
+
+// this is a sample of what the macro implements
+// #[async_trait]
+// impl DispatchHandler for RfsServer {
+//     async fn dispatch(
+//         &mut self,
+//         payload_bytes: &[u8],
+//     ) -> Result<Vec<u8>, rfs_core::middleware::InvokeError> {
+//         // each method call has one block like this
+//         if let Ok(payload) = MutableFileOpsCreateFile::process_invocation(payload_bytes) {
+//             let res = Self::create_file_payload(payload).await;
+//             let resp = MutableFileOpsCreateFile::Response(res);
+//             let export_payload = resp.invoke_bytes();
+//             return Ok(export_payload);
+//         }
+
+//         Err(InvokeError::HandlerNotFound)
+//     }
+// }

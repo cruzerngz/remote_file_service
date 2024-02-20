@@ -378,6 +378,7 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "clap",
+ "rfs_core",
  "rfs_methods",
  "tokio",
 ]
