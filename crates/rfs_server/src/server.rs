@@ -10,7 +10,7 @@ use rfs_methods::*;
 #[derive(Debug)]
 pub struct RfsServer {
     /// Starting directory for the server.
-    home: PathBuf,
+    pub home: PathBuf,
 }
 
 #[async_trait]
@@ -27,12 +27,12 @@ impl MutableFileOps for RfsServer {
     }
 }
 
-// assign all possible dispatch paths
-dispatcher_handler! {
-    RfsServer,
-    ImmutableFileOpsReadFile => ImmutableFileOps::read_file_payload,
-    MutableFileOpsCreateFile => MutableFileOps::create_file_payload
-}
+// assign dispatch paths to the server.
+// dispatcher_handler! {
+//     RfsServer,
+//     ImmutableFileOpsReadFile => ImmutableFileOps::read_file_payload,
+//     MutableFileOpsCreateFile => MutableFileOps::create_file_payload
+// }
 
 // this is a sample of what the macro implements
 // #[async_trait]

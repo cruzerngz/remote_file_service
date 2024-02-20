@@ -62,6 +62,18 @@ pub trait DispatchHandler {
     async fn dispatch(&mut self, payload_bytes: &[u8]) -> Result<Vec<u8>, InvokeError>;
 }
 
+/// Serve requests by binding to a port.
+///
+/// The default implementation does not cache requests.
+#[async_trait]
+pub trait RequestServer: DispatchHandler {
+    async fn serve(&mut self, addr: std::net::SocketAddrV4) {
+        todo!()
+    }
+}
+
+impl<T> RequestServer for T where T: DispatchHandler {}
+
 /// This macro implements [`DispatchHandler`] with a specified number of routes.
 ///
 /// ```no_run

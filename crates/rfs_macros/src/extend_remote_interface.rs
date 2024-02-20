@@ -18,6 +18,8 @@ use crate::{
 const PAYLOAD_IDENT: &str = "payload";
 
 /// Extend each method of a trait with a copy.
+/// Adds a mutable receiver to the start of each
+/// function definition as well.
 pub fn extend_trait(trait_def: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let ItemTrait {
         attrs,
@@ -31,12 +33,12 @@ pub fn extend_trait(trait_def: proc_macro::TokenStream) -> proc_macro::TokenStre
         colon_token,
         supertraits,
         brace_token,
-        items,
+        mut items,
     } = syn::parse_macro_input!(trait_def);
 
     // create the new trait items
     let new_trait_items = items
-        .iter()
+        .iter_mut()
         .filter_map(|item| {
             if let TraitItem::Fn(f) = item {
                 Some(f)
@@ -45,7 +47,7 @@ pub fn extend_trait(trait_def: proc_macro::TokenStream) -> proc_macro::TokenStre
             }
         })
         .map(|trait_method| {
-            let extended_fn = extend_method(ident.clone(), trait_method);
+            let extended_fn = mod_extend_method(ident.clone(), trait_method);
 
             [trait_method.to_owned(), extended_fn]
         })
@@ -72,8 +74,11 @@ pub fn extend_trait(trait_def: proc_macro::TokenStream) -> proc_macro::TokenStre
     .into()
 }
 
-/// Extend a single trait method from the existing method
-fn extend_method(trait_name: Ident, method: &TraitItemFn) -> TraitItemFn {
+/// Extend a single trait method from the existing method.
+///
+/// Modifies the given trait method and the new method so that it has a mutable self as a
+/// receiver.
+fn mod_extend_method(trait_name: Ident, method: &mut TraitItemFn) -> TraitItemFn {
     // construct the enum name
     let enum_name: Ident = Ident::new(
         &camel_case_to_pascal_case(&format!("{}_{}", trait_name, method.sig.ident)),
