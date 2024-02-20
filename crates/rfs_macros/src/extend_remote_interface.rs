@@ -82,23 +82,32 @@ fn mod_extend_method(trait_name: Ident, method: &mut TraitItemFn) -> TraitItemFn
     // construct the enum name
     let enum_name: Ident = Ident::new(
         &camel_case_to_pascal_case(&format!("{}_{}", trait_name, method.sig.ident)),
-        trait_name.span(),
+        method.sig.span(),
     );
 
     let payload_ident = Ident::new(PAYLOAD_IDENT, Span::call_site());
     let fn_params: Punctuated<FnArg, Comma> = syn::parse_quote! {#payload_ident: #enum_name};
+
+    let mut_reciever: Punctuated<FnArg, Comma> = syn::parse_quote! {&mut self};
+
+    method.sig.inputs = {
+        let mut reciever = mut_reciever.clone();
+        reciever.extend(method.sig.inputs.clone());
+
+        reciever
+    };
 
     // function arguments (the identifiers only)
     let fn_args = method
         .sig
         .inputs
         .iter()
-        .map(|param| {
+        .filter_map(|param| {
             let identifier = match param {
-                FnArg::Receiver(_) => panic!("fn cannot be a receiver"),
+                FnArg::Receiver(_) => None, // remove self from arg list
                 FnArg::Typed(arg) => {
                     if let Pat::Ident(i) = &*arg.pat {
-                        i.ident.to_owned()
+                        Some(i.ident.to_owned())
                     } else {
                         panic!("function params must be an identifier")
                     }
@@ -118,12 +127,11 @@ fn mod_extend_method(trait_name: Ident, method: &mut TraitItemFn) -> TraitItemFn
     // contents of the function body
     let fn_body: Block = syn::parse2(quote! {{
 
-
         match #payload_ident {
             #enum_name::#req_variant {
                 #fn_args
             } => {
-                Self::#original_method_ident(
+                self.#original_method_ident(
                     #fn_args
                 ).await
             },
@@ -136,9 +144,16 @@ fn mod_extend_method(trait_name: Ident, method: &mut TraitItemFn) -> TraitItemFn
 
     let fn_name = Ident::new(&format!("{}_payload", method.sig.ident), method.span());
 
+    let sig_inputs = {
+        let mut recv = mut_reciever.clone();
+        recv.extend(fn_params);
+
+        recv
+    };
+
     let new_sig = Signature {
         ident: fn_name,
-        inputs: fn_params,
+        inputs: sig_inputs,
 
         ..method.sig.to_owned()
     };

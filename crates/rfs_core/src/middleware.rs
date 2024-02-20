@@ -108,7 +108,7 @@ macro_rules! dispatcher_handler {
             async fn dispatch(&mut self, payload_bytes: &[u8]) -> Result<Vec<u8>, rfs_core::middleware::InvokeError> {
 
                 $(if let Ok(payload) = <$payload_ty>::process_invocation(payload_bytes) {
-                    let res = Self::$method(payload).await;
+                    let res = self.$method(payload).await;
                     let resp = <$payload_ty>::Response(res);
                     let export_payload = resp.invoke_bytes();
                     return Ok(export_payload);

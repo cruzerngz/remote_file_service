@@ -42,26 +42,14 @@ mod tests {
 
     #[async_trait]
     impl ImmutableFileOps for S {
-        async fn read_file(path: PathBuf, offset: Option<usize>) -> Vec<u8> {
+        async fn read_file(&mut self, path: PathBuf, offset: Option<usize>) -> Vec<u8> {
             todo!()
         }
     }
 
-    // #[async_trait]
+    #[async_trait]
     impl MutableFileOps for S {
-        #[doc = r" Create a new file at the new path"]
-        #[must_use]
-        #[allow(clippy::type_complexity, clippy::type_repetition_in_bounds)]
-        fn create_file<'async_trait>(
-            path: PathBuf,
-            truncate: bool,
-        ) -> ::core::pin::Pin<
-            Box<
-                dyn ::core::future::Future<Output = Result<(bool, i32), ()>>
-                    + ::core::marker::Send
-                    + 'async_trait,
-            >,
-        > {
+        async fn create_file(&mut self, path: PathBuf, truncate: bool) -> Result<(bool, i32), ()> {
             todo!()
         }
     }
@@ -87,24 +75,5 @@ mod tests {
 
         // let mut x = std::fs::File::create("serialized").unwrap();
         // x.write_all(&ser).unwrap();
-    }
-
-    #[test]
-    fn test_async_fn_pointers() {
-        let x: Box<
-            dyn Fn(
-                PathBuf,
-                Option<usize>,
-            ) -> ::core::pin::Pin<
-                Box<dyn ::core::future::Future<Output = Vec<u8>> + ::core::marker::Send>,
-            >,
-        > = Box::new(<S as ImmutableFileOps>::read_file);
-
-        let y: fn(
-            PathBuf,
-            bool,
-        ) -> std::pin::Pin<
-            Box<dyn std::future::Future<Output = Result<(bool, i32), ()>> + Send>,
-        > = <S as MutableFileOps>::create_file;
     }
 }

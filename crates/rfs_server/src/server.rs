@@ -15,24 +15,24 @@ pub struct RfsServer {
 
 #[async_trait]
 impl ImmutableFileOps for RfsServer {
-    async fn read_file(path: PathBuf, offset: Option<usize>) -> Vec<u8> {
+    async fn read_file(&mut self, path: PathBuf, offset: Option<usize>) -> Vec<u8> {
         todo!()
     }
 }
 
 #[async_trait]
 impl MutableFileOps for RfsServer {
-    async fn create_file(path: PathBuf, truncate: bool) -> Result<(bool, i32), ()> {
+    async fn create_file(&mut self, path: PathBuf, truncate: bool) -> Result<(bool, i32), ()> {
         todo!()
     }
 }
 
 // assign dispatch paths to the server.
-// dispatcher_handler! {
-//     RfsServer,
-//     ImmutableFileOpsReadFile => ImmutableFileOps::read_file_payload,
-//     MutableFileOpsCreateFile => MutableFileOps::create_file_payload
-// }
+dispatcher_handler! {
+    RfsServer,
+    ImmutableFileOpsReadFile => ImmutableFileOps::read_file_payload,
+    MutableFileOpsCreateFile => MutableFileOps::create_file_payload
+}
 
 // this is a sample of what the macro implements
 // #[async_trait]
