@@ -1,12 +1,15 @@
+
 #![allow(unused)]
 
 use quote::quote;
 use syn::{punctuated::Punctuated, ItemTrait};
 
 mod client;
+#[cfg(notused)]
 mod remote_call;
 mod remote_message;
 pub(crate) mod remote_method_signature;
+mod extend_remote_interface;
 
 /// Generates the necessary code to implement a remote interface.
 ///
@@ -85,10 +88,10 @@ pub fn remote_interface(
         client::derive_client(ident.clone(), methods.map(|m| m.to_owned()).collect());
 
     // generate implementations for RemoteCall
-    let remote_call_impls = derived_enum_idents_sigs
-        .into_iter()
-        .map(|(ident, sig)|remote_call::derive_remote_call(ident, sig))
-        .collect::<proc_macro2::TokenStream>();
+    // let remote_call_impls = derived_enum_idents_sigs
+    //     .into_iter()
+    //     .map(|(ident, sig)|remote_call::derive_remote_call(ident, sig))
+    //     .collect::<proc_macro2::TokenStream>();
 
     [trait_def, derived_enums, derived_client_impl]//, remote_call_impls]
         .into_iter()

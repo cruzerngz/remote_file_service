@@ -15,33 +15,8 @@ use crate::{
     remote_message::{VARIANT_REQUEST, VARIANT_RESPONSE},
 };
 
-const ADDITIONAL_ARG: OnceCell<FnArg> = OnceCell::new();
-
 /// The identifier for the context manager
 const CTX_MGR_IDENT: &str = "ctx";
-
-fn initialize_additional_arg() -> FnArg {
-    let x: FnArg = syn::parse2(quote! {ctx: ContextManager}).unwrap();
-
-    FnArg::Typed(syn::PatType {
-        attrs: vec![],
-        pat: Box::new(Pat::Ident(syn::PatIdent {
-            attrs: vec![],
-            by_ref: None,
-            mutability: None,
-            ident: Ident::new("string", Span::call_site()),
-            subpat: None,
-        })),
-        colon_token: Default::default(),
-        ty: Box::new(syn::Type::Path(syn::TypePath {
-            qself: None,
-            path: syn::Path {
-                leading_colon: todo!(),
-                segments: todo!(),
-            },
-        })),
-    })
-}
 
 /// From the trait name, derive a new client struct and implement
 /// the same methods as the trait, but with an additional parameter:

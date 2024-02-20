@@ -69,7 +69,7 @@ pub trait RemoteRequest {
 /// This trait is automatically derived from any interface that has the
 /// [`remote_interface`] proc-macro. (not yet)
 #[async_trait]
-pub trait RemoteCall {
+trait RemoteCall {
     type Function;
 
     async fn call(&self, func: Self::Function) -> Self;

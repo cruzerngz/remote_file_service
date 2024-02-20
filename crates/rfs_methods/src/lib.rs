@@ -11,6 +11,12 @@ use rfs_core::RemoteMethodSignature;
 pub trait ImmutableFileOps {
     /// Read the contents of a file.
     async fn read_file(path: PathBuf, offset: Option<usize>) -> Vec<u8>;
+
+    // this is implemented by remote-interface
+    // async fn read_file_payload(payload: ImmutableFileOpsReadFile) -> Vec<u8> {
+    //
+    // }
+    // type X  = bool;
 }
 
 /// Mutable file operations are defined in this interface.

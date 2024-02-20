@@ -1,4 +1,5 @@
 //! This module derives the `RemoteCall` trait.
+//! NOTUSED
 
 use proc_macro2::Span;
 use quote::{quote, ToTokens};
