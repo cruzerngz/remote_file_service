@@ -16,15 +16,13 @@ async fn main() {
     std::env::set_var("RUST_LOG", "DEBUG");
     pretty_env_logger::init();
 
-    let server = RfsServer {
-        home: Default::default(),
-    };
+    let server = RfsServer::default();
 
     let addr = SocketAddrV4::new(Ipv4Addr::LOCALHOST, 3333);
 
     log::info!("server listening on {}", addr);
 
-    let mut dispatcher = Dispatcher::new(addr, server).await;
+    let mut dispatcher = Dispatcher::new(addr, server);
 
     dispatcher.dispatch().await;
 

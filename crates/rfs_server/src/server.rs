@@ -1,7 +1,7 @@
 //! Server definition and implementations
 #![allow(unused)]
 
-use std::{path::PathBuf, time::Duration};
+use std::{fs::OpenOptions, path::PathBuf, time::Duration};
 
 use async_trait::async_trait;
 use rfs_core::{
@@ -15,6 +15,21 @@ use rfs_methods::*;
 pub struct RfsServer {
     /// Starting directory for the server.
     pub home: PathBuf,
+}
+
+impl Default for RfsServer {
+    fn default() -> Self {
+        let exe_dir = std::env::current_dir().expect("failed to get executable dir");
+
+        log::debug!(
+            "server base file path: {:?}",
+            std::fs::canonicalize(&exe_dir)
+        );
+
+        Self {
+            home: PathBuf::from(exe_dir),
+        }
+    }
 }
 
 #[async_trait]
@@ -31,6 +46,58 @@ impl ImmutableFileOps for RfsServer {
 #[async_trait]
 impl MutableFileOps for RfsServer {
     async fn create_file(&mut self, path: PathBuf, truncate: bool) -> Result<(bool, i32), ()> {
+        todo!()
+    }
+}
+
+#[async_trait]
+impl PrimitiveFsOps for RfsServer {
+    async fn read(&mut self, path: String) -> Vec<u8> {
+        let file = match std::fs::read(path) {
+            Ok(s) => s,
+            Err(_) => vec![],
+        };
+
+        file
+    }
+
+    async fn write(&mut self, path: String) -> bool {
+        todo!()
+    }
+
+    async fn create(&mut self, path: String) -> bool {
+        let mut start = self.home.clone();
+        start.push(path);
+
+        log::debug!("creating file at {:?}", start);
+
+        match std::fs::File::create(start) {
+            Ok(_) => true,
+            Err(e) => {
+                log::error!("failed to create file: {}", e);
+                false
+            }
+        }
+    }
+
+    async fn remove(&mut self, path: String) -> bool {
+        match std::fs::remove_file(path) {
+            Ok(_) => true,
+            Err(_) => false,
+        }
+    }
+
+    async fn rename(&mut self, path: String, from: String, to: String) -> bool {
+        todo!()
+    }
+
+    async fn mkdir(&mut self, path: String) -> bool {
+        todo!()
+    }
+    async fn rmdir(&mut self, path: String) -> bool {
+        todo!()
+    }
+    async fn read_dir(&mut self, path: String) -> bool {
         todo!()
     }
 }
@@ -73,7 +140,13 @@ handle_payloads! {
     // MutableFileOpsCreateFile => MutableFileOps::create_file_payload,
 
     SimpleOpsSayHello => SimpleOps::say_hello_payload,
-    SimpleOpsComputeFib => SimpleOps::compute_fib_payload
+    SimpleOpsComputeFib => SimpleOps::compute_fib_payload,
+
+    // primitive ops
+    PrimitiveFsOpsRead => PrimitiveFsOps::read_payload,
+    PrimitiveFsOpsWrite => PrimitiveFsOps::write_payload,
+    PrimitiveFsOpsCreate => PrimitiveFsOps::create_payload,
+    PrimitiveFsOpsRemove => PrimitiveFsOps::remove_payload
 }
 
 // #[async_trait]

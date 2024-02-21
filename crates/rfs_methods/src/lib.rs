@@ -1,13 +1,12 @@
 //! Remote methods, data structures between server and client are defined here.
 
-mod virt_objects;
+pub mod fs;
 
 use std::path::PathBuf;
 
 use rfs_core::remote_interface;
 
 use rfs_core::RemoteMethodSignature;
-use virt_objects::VirtFile;
 
 /// Immutable file operations are defined in this interface.
 #[remote_interface]
@@ -34,18 +33,25 @@ pub trait MutableFileOps {
     async fn create_file(path: PathBuf, truncate: bool) -> Result<(bool, i32), ()>;
 }
 
-/// Remotely invoked primitives, platform agnostic
+/// Remotely invoked primitives, platform agnostic.
+///
+/// These are not meant to be invoked directly.
 #[remote_interface]
 pub trait PrimitiveFsOps {
-    async fn read(path: PathBuf) -> Vec<u8>;
-    async fn write(path: PathBuf) -> bool;
-    async fn create(path: PathBuf) -> VirtFile;
-    async fn remove(path: PathBuf) -> bool;
-    async fn rename(path: PathBuf, from: String, to: String) -> bool;
+    /// Read some bytes from a file
+    async fn read(path: String) -> Vec<u8>;
 
-    async fn mkdir(path: PathBuf) -> bool;
-    async fn rmdir(path: PathBuf) -> bool;
-    async fn read_dir(path: PathBuf) -> bool;
+    async fn write(path: String) -> bool;
+
+    /// Create a file at a specified path. Returns the result of the operation.
+    async fn create(path: String) -> bool;
+
+    async fn remove(path: String) -> bool;
+    async fn rename(path: String, from: String, to: String) -> bool;
+
+    async fn mkdir(path: String) -> bool;
+    async fn rmdir(path: String) -> bool;
+    async fn read_dir(path: String) -> bool;
 }
 
 /// Sanity check interface

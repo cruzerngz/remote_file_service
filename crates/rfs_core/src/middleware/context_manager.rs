@@ -10,7 +10,7 @@ use super::InvokeError;
 /// the dispatcher.
 ///
 /// Integrity checks, validation, etc. are performed here.
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub struct ContextManager {
     /// The target address and port
     source_ip: Ipv4Addr,
@@ -67,13 +67,5 @@ impl ContextManager {
             .map_err(|_| InvokeError::DataTransmissionFailed)?;
 
         P::process_invocation(&recv_buf)
-
-        // self.target.connect(addr)
-        // self.source_ip.send(&data);
-
-        // let mut recv_buf = Vec::new();
-        // self.source_ip.recv_from(&mut recv_buf);
-
-        // todo!()
     }
 }

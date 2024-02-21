@@ -6,8 +6,11 @@
 
 mod context_manager;
 
-use std::{fmt::Debug, net::SocketAddrV4};
-use tokio::net::UdpSocket;
+use std::{
+    fmt::Debug,
+    net::{SocketAddrV4, UdpSocket},
+};
+// use tokio::net::UdpSocket;
 
 use async_trait::async_trait;
 
@@ -57,10 +60,8 @@ where
     H: Debug + PayloadHandler,
 {
     /// Create a new dispatcher from the handler and a listening IP
-    pub async fn new(addr: SocketAddrV4, handler: H) -> Self {
-        let socket = UdpSocket::bind(addr)
-            .await
-            .expect("failed to bind to specified address");
+    pub fn new(addr: SocketAddrV4, handler: H) -> Self {
+        let socket = UdpSocket::bind(addr).expect("failed to bind to specified address");
 
         Self { socket, handler }
     }
@@ -72,7 +73,7 @@ where
         loop {
             // buf.clear();
 
-            match self.socket.recv_from(&mut buf).await {
+            match self.socket.recv_from(&mut buf) {
                 Ok((bytes, addr)) => {
                     log::debug!("received {} bytes from {}", bytes, addr);
 
@@ -90,7 +91,7 @@ where
                         Ok(res) => {
                             log::debug!("payload header: {:?}", &res[..20]);
 
-                            self.socket.send_to(&res, addr).await.unwrap()
+                            self.socket.send_to(&res, addr).unwrap()
                         }
                         Err(e) => {
                             log::error!("Invoke error: {:?}", e);
