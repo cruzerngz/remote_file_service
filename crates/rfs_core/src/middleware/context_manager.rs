@@ -46,7 +46,7 @@ impl ContextManager {
     /// Send an invocation over the network, and returns the result.
     pub async fn invoke<P: RemotelyInvocable>(&self, payload: P) -> Result<P, InvokeError> {
         // send to server and wait for a reply
-        let data = payload.invoke_bytes();
+        let data = &payload.invoke_bytes()[..40];
 
         // for now, bind and connect on every invocation
 

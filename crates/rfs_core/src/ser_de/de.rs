@@ -7,7 +7,7 @@ use serde::{
 
 use crate::ser_de::consts;
 
-use super::{consts::ByteSizePrefix, ByteViewer};
+use super::{consts::ByteSizePrefix, err, ByteViewer};
 
 /// This data structure contains the serialized bytes of any arbitrary data structure.
 ///
@@ -38,8 +38,37 @@ macro_rules! deserialize_numeric_primitive {
             }
 
             const NUM_BYTES: usize = std::mem::size_of::<ByteSizePrefix>();
+
+            require_bytes! {self.input, NUM_BYTES, err::Error::OutOfBytes};
+
             let bytes = self.input.next_bytes_fixed::<NUM_BYTES>(true);
             visitor.$visitor_fn(<$conv_type>::from_be_bytes(bytes) as $data_type)
+        }
+    };
+}
+
+/// Checks the byteviewer if it has sufficient bytes for the operation.
+///
+/// If there are insufficient bytes, return an error.
+macro_rules! require_bytes {
+    // for literals
+    ($visitor_fn: expr, $num_bytes: literal, $error: path) => {
+        if $visitor_fn.distance_to_end() < $num_bytes {
+            return Err($error);
+        }
+    };
+
+    // for idents
+    ($visitor_fn: expr, $num_bytes: ident, $error: path) => {
+        if $visitor_fn.distance_to_end() < $num_bytes {
+            return Err($error);
+        }
+    };
+
+    // for expressions
+    ($visitor_fn: expr, $num_bytes: expr, $error: path) => {
+        if $visitor_fn.distance_to_end() < $num_bytes {
+            return Err($error);
         }
     };
 }
@@ -49,6 +78,8 @@ macro_rules! deserialize_numeric_primitive {
 /// Pass in the appropriate error to return when the bytes do not match
 macro_rules! validate_bytes {
     ($viewer: expr, $known: path => $err: expr) => {
+        require_bytes! {$viewer, 1, err::Error::OutOfBytes};
+
         let next_byte = $viewer.next_byte();
         match next_byte == $known {
             true => (),
@@ -90,6 +121,9 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut RfsDeserializer<'de> {
     where
         V: de::Visitor<'de>,
     {
+        // bools occupy 2 bytes
+        require_bytes! {self.input, 2, err::Error::OutOfBytes};
+
         let prefix = self.input.next_byte();
 
         match prefix == consts::PREFIX_BOOL {
@@ -147,6 +181,9 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut RfsDeserializer<'de> {
     where
         V: de::Visitor<'de>,
     {
+        // chars occupy 4 bytes
+        require_bytes! {self.input, 4, err::Error::OutOfBytes};
+
         let bytes = self.input.next_bytes_fixed::<4>(true);
         let char_num = u32::from_be_bytes(bytes);
         visitor.visit_char(
@@ -166,7 +203,10 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut RfsDeserializer<'de> {
             self.input, consts::PREFIX_STR => Self::Error::PrefixNotMatched(consts::PREFIX_STR)
         }
 
+        require_bytes! {self.input, 8, err::Error::OutOfBytes};
         let len = self.input.pop_size();
+
+        require_bytes! {self.input, len as usize, err::Error::OutOfBytes};
         let str_bytes = self.input.next_bytes(len as usize, true);
 
         visitor.visit_str(
@@ -188,8 +228,10 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut RfsDeserializer<'de> {
         //     true => (),
         //     false => return Err(super::err::Error::PrefixNotMatched(format!(""))),
         // }
-
+        require_bytes! {self.input, 8, err::Error::OutOfBytes};
         let len = self.input.pop_size();
+
+        require_bytes! {self.input, len as usize, err::Error::OutOfBytes};
         let str_bytes = self.input.next_bytes(len as usize, true);
 
         visitor.visit_string(
@@ -203,7 +245,10 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut RfsDeserializer<'de> {
     where
         V: de::Visitor<'de>,
     {
+        require_bytes! {self.input, 8, err::Error::OutOfBytes};
         let len = self.input.pop_size();
+
+        require_bytes! {self.input, len as usize, err::Error::OutOfBytes};
         let bytes = self.input.next_bytes(len as usize, true);
 
         visitor.visit_bytes(bytes)
@@ -213,7 +258,10 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut RfsDeserializer<'de> {
     where
         V: de::Visitor<'de>,
     {
+        require_bytes! {self.input, 8, err::Error::OutOfBytes};
         let len = self.input.pop_size();
+
+        require_bytes! {self.input, len as usize, err::Error::OutOfBytes};
         let bytes = self.input.next_bytes(len as usize, true);
 
         visitor.visit_byte_buf(bytes.to_owned())
@@ -223,13 +271,9 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut RfsDeserializer<'de> {
     where
         V: de::Visitor<'de>,
     {
-        let opt_prefix = self.input.next_byte();
+        validate_bytes! {self.input, consts::PREFIX_OPTIONAL => Self::Error::PrefixNotMatched(consts::PREFIX_OPTIONAL) }
 
-        match opt_prefix == consts::PREFIX_OPTIONAL {
-            true => (),
-            false => return Err(Self::Error::PrefixNotMatched(consts::PREFIX_OPTIONAL)),
-        }
-
+        require_bytes! {self.input, 1, err::Error::OutOfBytes};
         let variant = self.input.next_byte();
 
         match variant {
@@ -243,6 +287,7 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut RfsDeserializer<'de> {
     where
         V: de::Visitor<'de>,
     {
+        require_bytes! {self.input, 1, err::Error::OutOfBytes};
         let unit_prefix = self.input.next_byte();
 
         match unit_prefix == consts::PREFIX_UNIT {

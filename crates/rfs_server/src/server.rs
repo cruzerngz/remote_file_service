@@ -2,7 +2,11 @@
 #![allow(unused)]
 
 // use crate::server::middleware::PayloadHandler;
-use rfs::{handle_payloads, middleware::PayloadHandler};
+use rfs::{
+    handle_payloads,
+    middleware::{InvokeError, PayloadHandler},
+    RemoteMethodSignature, RemotelyInvocable,
+};
 use std::{fs::OpenOptions, io::Write, path::PathBuf, time::Duration};
 
 use async_trait::async_trait;
@@ -170,13 +174,17 @@ handle_payloads! {
 // #[async_trait]
 // impl PayloadHandler for RfsServer {
 //     async fn handle_payload(&mut self, payload_bytes: &[u8]) -> Result<Vec<u8>, InvokeError> {
-//         {
-//             log::debug!("incoming payload: {:?}", payload_bytes);
+//         log::debug!("incoming payload: {:?}", payload_bytes);
 
-//             let payload = SimpleOpsComputeFib::process_invocation(payload_bytes)?;
+//         // if sig does not match, continue
+//         if payload_bytes.starts_with(
+//             <SimpleOpsComputeFib as rfs::RemoteMethodSignature>::remote_method_signature(),
+//         ) {
+//             let payload =
+//                 <SimpleOpsComputeFib as rfs::RemotelyInvocable>::process_invocation(payload_bytes)?;
 //             let res = self.compute_fib_payload(payload).await;
 //             let resp = SimpleOpsComputeFib::Response(res);
-//             let export_payload = resp.invoke_bytes();
+//             let export_payload = rfs::RemotelyInvocable::invoke_bytes(&resp);
 //             return Ok(export_payload);
 //         }
 

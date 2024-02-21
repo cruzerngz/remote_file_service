@@ -201,15 +201,16 @@ macro_rules! handle_payloads {
         impl PayloadHandler for $server_ty {
             async fn handle_payload(&mut self, payload_bytes: &[u8]) -> Result<Vec<u8>, rfs::middleware::InvokeError> {
 
-                $(if let Ok(payload) = <$payload_ty as rfs::RemotelyInvocable>::process_invocation(payload_bytes) {
-
-                    log::debug!("processing {}", stringify!($payload_ty));
-
-                    let res = self.$method(payload).await;
-                    let resp = <$payload_ty>::Response(res);
-                    let export_payload = rfs::RemotelyInvocable::invoke_bytes(&resp);
-                    return Ok(export_payload);
-                })+
+                $(if payload_bytes.starts_with(
+                        <$payload_ty as rfs::RemoteMethodSignature>::remote_method_signature(),
+                    ) {
+                        let payload =
+                            <$payload_ty as rfs::RemotelyInvocable>::process_invocation(payload_bytes)?;
+                        let res = self.$method(payload).await;
+                        let resp = <$payload_ty>::Response(res);
+                        let export_payload = rfs::RemotelyInvocable::invoke_bytes(&resp);
+                        return Ok(export_payload);
+                    })+
 
                 // no matches, error out
                 Err(rfs::middleware::InvokeError::HandlerNotFound)

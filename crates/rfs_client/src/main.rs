@@ -33,8 +33,9 @@ async fn main() {
         content: "what's up".to_string(),
     };
 
-let resp =
-    manager.invoke(payload).await;
+    let resp = manager.invoke(payload).await;
+
+    println!("response from remote: {:?}", resp);
 
     println!("Hello, world!");
 }

@@ -23,6 +23,9 @@ pub enum Error {
     /// Something's wrong with the data
     MalformedData,
 
+    /// The deserializer does not have sufficient bytes continue the operation.
+    OutOfBytes,
+
     /// A custom error
     Custom(String),
 }
@@ -55,6 +58,7 @@ impl std::fmt::Display for Error {
             Error::UnexpectedData { exp, have } => {
                 format!("Unexpected data. Expected {}, have {:0b}", exp, have)
             }
+            Error::OutOfBytes => format!("Out of bytes to deserialize"),
             Error::MalformedData => format!("Malformed data"),
             Error::Custom(c) => format!("Error: {}", c),
         };
