@@ -54,6 +54,26 @@ pub struct Dispatcher<H: Debug + PayloadHandler> {
     // Inner data structure that implements logic for remote interfaces
     handler: H,
 }
+impl std::error::Error for InvokeError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        None
+    }
+
+    fn description(&self) -> &str {
+        "description() is deprecated; use Display"
+    }
+
+    fn cause(&self) -> Option<&dyn std::error::Error> {
+        self.source()
+    }
+}
+
+// temp, display is debug
+impl std::fmt::Display for InvokeError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}", self)
+    }
+}
 
 impl<H> Dispatcher<H>
 where

@@ -1,7 +1,7 @@
 //! Server definition and implementations
 #![allow(unused)]
 
-use std::{fs::OpenOptions, path::PathBuf, time::Duration};
+use std::{fs::OpenOptions, io::Write, path::PathBuf, time::Duration};
 
 use async_trait::async_trait;
 use rfs_core::{
@@ -63,6 +63,26 @@ impl PrimitiveFsOps for RfsServer {
 
     async fn write(&mut self, path: String) -> bool {
         todo!()
+    }
+
+    async fn write_file_bytes(&mut self, path: String, bytes: Vec<u8>) -> usize {
+        let mut start = self.home.clone();
+        start.push(path);
+
+        match OpenOptions::new().append(true).open(start) {
+            Ok(mut f) => match f.write_all(&bytes) {
+                Ok(num) => bytes.len(),
+                Err(e) => {
+                    log::error!("failed to write to file: {}", e);
+                    0
+                }
+            },
+            Err(e) => {
+                log::error!("file open failed: {}", e);
+
+                0
+            }
+        }
     }
 
     async fn create(&mut self, path: String) -> bool {
@@ -146,7 +166,8 @@ handle_payloads! {
     PrimitiveFsOpsRead => PrimitiveFsOps::read_payload,
     PrimitiveFsOpsWrite => PrimitiveFsOps::write_payload,
     PrimitiveFsOpsCreate => PrimitiveFsOps::create_payload,
-    PrimitiveFsOpsRemove => PrimitiveFsOps::remove_payload
+    PrimitiveFsOpsRemove => PrimitiveFsOps::remove_payload,
+    PrimitiveFsOpsWriteFileBytes => PrimitiveFsOps::write_file_bytes_payload
 }
 
 // #[async_trait]

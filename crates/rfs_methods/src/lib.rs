@@ -43,6 +43,9 @@ pub trait PrimitiveFsOps {
 
     async fn write(path: String) -> bool;
 
+    /// Writes some bytes into a file path, returning the number of bytes written
+    async fn write_file_bytes(path: String, bytes: Vec<u8>) -> usize;
+
     /// Create a file at a specified path. Returns the result of the operation.
     async fn create(path: String) -> bool;
 

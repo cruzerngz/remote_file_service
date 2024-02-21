@@ -53,7 +53,9 @@ impl VirtFile {
         })
     }
 
-    /// Open an existing file
+    /// Open an existing file in read-only mode.
+    ///
+    /// Attempts to mirror [std::fs::File::open]
     pub async fn open<P: AsRef<Path>>(ctx: ContextManager, path: P) -> std::io::Result<Self> {
         todo!()
     }
@@ -61,6 +63,14 @@ impl VirtFile {
     /// Return metadata from the file
     pub async fn metadata(&self) -> std::io::Result<VirtMetadata> {
         todo!()
+    }
+
+    /// Returns the virtual file path as a string
+    fn path_as_string(&self) -> String {
+        self.path
+            .to_str()
+            .and_then(|s| Some(s.to_owned()))
+            .unwrap_or_default()
     }
 }
 
@@ -70,15 +80,9 @@ impl AsyncRead for VirtFile {
         cx: &mut std::task::Context<'_>,
         buf: &mut [u8],
     ) -> std::task::Poll<std::io::Result<usize>> {
-        let mut x = Box::pin(PrimitiveFsOpsClient::read(
-            &self.ctx,
-            self.path
-                .to_str()
-                .and_then(|s| Some(s.to_owned()))
-                .unwrap_or_default(),
-        ));
+        let mut read_bytes = Box::pin(PrimitiveFsOpsClient::read(&self.ctx, self.path_as_string()));
 
-        match x.poll_unpin(cx) {
+        match read_bytes.poll_unpin(cx) {
             std::task::Poll::Ready(res) => match res {
                 Ok(data) => {
                     let buffer_size = buf.len();
@@ -116,21 +120,34 @@ impl AsyncWrite for VirtFile {
         cx: &mut std::task::Context<'_>,
         buf: &[u8],
     ) -> std::task::Poll<std::io::Result<usize>> {
-        todo!()
+        let mut task = Box::pin(PrimitiveFsOpsClient::write_file_bytes(
+            &self.ctx,
+            self.path_as_string(),
+            buf.to_vec(),
+        ));
+
+        match task.poll_unpin(cx) {
+            std::task::Poll::Ready(res) => {
+                let output = res.map_err(|e| io::Error::new(io::ErrorKind::Other, e));
+
+                std::task::Poll::Ready(output)
+            }
+            std::task::Poll::Pending => std::task::Poll::Pending,
+        }
     }
 
     fn poll_flush(
         self: std::pin::Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
     ) -> std::task::Poll<std::io::Result<()>> {
-        todo!()
+        std::task::Poll::Ready(Ok(()))
     }
 
     fn poll_close(
         self: std::pin::Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
     ) -> std::task::Poll<std::io::Result<()>> {
-        todo!()
+        std::task::Poll::Ready(Ok(()))
     }
 }
 
