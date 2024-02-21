@@ -15,3 +15,6 @@ target/
 
 # typst generated pdfs
 *.pdf
+
+# misc
+*.zip
