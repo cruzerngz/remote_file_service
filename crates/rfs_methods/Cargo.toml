@@ -12,3 +12,4 @@ rfs_core = { path = "../rfs_core" }
 serde = { workspace = true }
 async-trait = { workspace = true }
 log = { workspace = true }
+futures = { workspace = true }
