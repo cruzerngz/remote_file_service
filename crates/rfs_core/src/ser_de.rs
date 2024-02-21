@@ -47,7 +47,7 @@ where
 ///
 /// This data structure can perform various (immutable) operations on a slice of
 /// bytes.
-struct ByteViewer<'arr> {
+pub struct ByteViewer<'arr> {
     slice: &'arr [u8],
     size: usize,
     offset: usize,

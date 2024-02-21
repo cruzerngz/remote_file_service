@@ -13,12 +13,16 @@ use std::{
 // use tokio::net::UdpSocket;
 
 use async_trait::async_trait;
+use serde::{Deserialize, Serialize};
 
-use crate::RemotelyInvocable;
+use crate::{ser_de, RemotelyInvocable};
 pub use context_manager::ContextManager;
 
+/// Error header send between the dispatcher and context manager
+const ERROR_HEADER: &[u8] = "ERROR_ERROR_ERROR_ERROR".as_bytes();
+
 /// Method invocation errors
-#[derive(Debug)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum InvokeError {
     /// The remote is unable to find a handler for the given payload.
     ///
@@ -40,6 +44,9 @@ pub enum InvokeError {
 
     /// Unable to send data to the remote
     DataTransmissionFailed,
+
+    /// Remote received an error
+    RemoteReceiveError,
 }
 
 /// The dispatcher for remote invocations.
@@ -111,18 +118,28 @@ where
                         Ok(res) => {
                             log::debug!("payload header: {:?}", &res[..20]);
 
-                            self.socket.send_to(&res, addr).unwrap()
+                            self.socket
+                                .send_to(&res, addr)
+                                .expect("failed to send back to source")
                         }
                         Err(e) => {
                             log::error!("Invoke error: {:?}", e);
-                            continue;
+
+                            let mut data = ERROR_HEADER.to_vec();
+                            data.extend(ser_de::serialize_packed(&e).unwrap());
+
+                            self.socket
+                                .send_to(&data, addr)
+                                .expect("failed to send error back to source")
                         }
                     };
 
                     log::debug!("sent {} bytes to {}", bytes, addr);
                 }
                 // log the error
-                Err(e) => log::error!("Receive error: {}", e),
+                Err(e) => {
+                    log::error!("Receive error: {}", e);
+                }
             }
         }
     }
@@ -178,7 +195,7 @@ impl<T> RequestServer for T where T: PayloadHandler {}
 #[macro_export]
 macro_rules! handle_payloads {
     ($server_ty: ty,
-        $($payload_ty: ty => $trait: ident :: $method: ident),+
+        $($payload_ty: ty => $trait: ident :: $method: ident),+,
     ) => {
         #[async_trait::async_trait]
         impl PayloadHandler for $server_ty {

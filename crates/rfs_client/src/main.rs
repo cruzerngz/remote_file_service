@@ -2,7 +2,7 @@ use std::net::{Ipv4Addr, SocketAddrV4};
 
 use futures::AsyncWriteExt;
 // use rfs_core::middleware::ContextManager;
-use rfs::middleware::ContextManager;
+use rfs::{interfaces::*, middleware::ContextManager};
 
 #[tokio::main]
 async fn main() {
@@ -18,15 +18,23 @@ async fn main() {
     // let res = SimpleOpsClient::compute_fib(&manager, 10).await;
     // log::info!("{:?}", res);
 
-    log::debug!("creating file on the remote");
-    let mut remote_file = rfs::fs::VirtFile::create(manager, "remote_file.txt")
-        .await
-        .expect("file creation error");
+    // log::debug!("creating file on the remote");
+    // let mut remote_file = rfs::fs::VirtFile::create(manager, "remote_file.txt")
+    //     .await
+    //     .expect("file creation error");
 
-    remote_file
-        .write("hello world asdlkmasldkmalskd\n".as_bytes())
-        .await
-        .expect("failed to write to file");
+    // remote_file
+    //     .write("hello world asdlkmasldkmalskd\n".as_bytes())
+    //     .await
+    //     .expect("failed to write to file");
+
+    // send malformed data
+    let payload = SimpleOpsSayHello::Request {
+        content: "what's up".to_string(),
+    };
+
+let resp =
+    manager.invoke(payload).await;
 
     println!("Hello, world!");
 }

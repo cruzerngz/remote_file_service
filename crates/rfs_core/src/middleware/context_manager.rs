@@ -1,6 +1,10 @@
 use std::net::{Ipv4Addr, SocketAddrV4, UdpSocket};
 
-use crate::RemotelyInvocable;
+use crate::{
+    middleware::ERROR_HEADER,
+    ser_de::{self, ByteViewer},
+    RemotelyInvocable,
+};
 
 use super::InvokeError;
 
@@ -66,6 +70,14 @@ impl ContextManager {
             .recv(&mut recv_buf)
             .map_err(|_| InvokeError::DataTransmissionFailed)?;
 
-        P::process_invocation(&recv_buf)
+        // check for an error header, and process the remote error
+        if recv_buf.starts_with(ERROR_HEADER) {
+            let error: InvokeError = ser_de::deserialize_packed(&recv_buf[ERROR_HEADER.len()..])
+                .expect("failed to deserialize error packet");
+
+            Err(error)
+        } else {
+            P::process_invocation(&recv_buf)
+        }
     }
 }

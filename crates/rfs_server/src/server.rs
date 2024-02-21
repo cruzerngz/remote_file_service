@@ -164,7 +164,7 @@ handle_payloads! {
     PrimitiveFsOpsWrite => PrimitiveFsOps::write_payload,
     PrimitiveFsOpsCreate => PrimitiveFsOps::create_payload,
     PrimitiveFsOpsRemove => PrimitiveFsOps::remove_payload,
-    PrimitiveFsOpsWriteFileBytes => PrimitiveFsOps::write_file_bytes_payload
+    PrimitiveFsOpsWriteFileBytes => PrimitiveFsOps::write_file_bytes_payload,
 }
 
 // #[async_trait]
