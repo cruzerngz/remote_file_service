@@ -3,7 +3,7 @@
 use quote::quote;
 use syn::{punctuated::Punctuated, ItemTrait};
 
-mod client;
+mod client_builder;
 mod extend_remote_interface;
 mod remote_message;
 pub(crate) mod remote_method_signature;
@@ -94,7 +94,7 @@ pub fn remote_interface(
 
     // generate client struct
     let derived_client_impl =
-        client::derive_client(ident.clone(), methods.map(|m| m.to_owned()).collect());
+        client_builder::derive_client(ident.clone(), methods.map(|m| m.to_owned()).collect());
 
     [trait_def, derived_enums, derived_client_impl]
         .into_iter()

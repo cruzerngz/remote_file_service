@@ -13,5 +13,14 @@ pub struct VirtFile {
     path: PathBuf,
 }
 
+/// Virtual directory
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct VirtDirEntry;
+
+/// Iterator over [VirtReadDir] entries.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct VirtReadDir;
+
+/// Virtual file metadata
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct VirtMetadata;
