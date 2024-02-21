@@ -12,3 +12,5 @@ rfs_methods = { path = "../rfs_methods" }
 
 clap = { workspace = true }
 tokio = { workspace = true }
+log = { workspace = true }
+pretty_env_logger = { workspace = true }

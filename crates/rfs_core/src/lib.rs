@@ -33,6 +33,9 @@ pub trait RemotelyInvocable:
     fn process_invocation(bytes: &[u8]) -> Result<Self, InvokeError> {
         let signature = Self::remote_method_signature();
 
+        println!("signature: {:?}", signature);
+        println!("compare  : {:?}", &bytes[..signature.len()]);
+
         match bytes.starts_with(signature) {
             true => (),
             false => return Err(InvokeError::SignatureNotMatched),

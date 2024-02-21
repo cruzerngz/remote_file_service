@@ -4,7 +4,11 @@
 use std::{path::PathBuf, time::Duration};
 
 use async_trait::async_trait;
-use rfs_core::{handle_payloads, middleware::PayloadHandler, RemotelyInvocable};
+use rfs_core::{
+    handle_payloads,
+    middleware::{InvokeError, PayloadHandler},
+    RemotelyInvocable,
+};
 use rfs_methods::*;
 
 #[derive(Debug)]
@@ -65,12 +69,29 @@ impl SimpleOps for RfsServer {
 // assign dispatch paths to the server.
 handle_payloads! {
     RfsServer,
-    ImmutableFileOpsReadFile => ImmutableFileOps::read_file_payload,
-    MutableFileOpsCreateFile => MutableFileOps::create_file_payload,
+    // ImmutableFileOpsReadFile => ImmutableFileOps::read_file_payload,
+    // MutableFileOpsCreateFile => MutableFileOps::create_file_payload,
 
     SimpleOpsSayHello => SimpleOps::say_hello_payload,
     SimpleOpsComputeFib => SimpleOps::compute_fib_payload
 }
+
+// #[async_trait]
+// impl PayloadHandler for RfsServer {
+//     async fn handle_payload(&mut self, payload_bytes: &[u8]) -> Result<Vec<u8>, InvokeError> {
+//         {
+//             log::debug!("incoming payload: {:?}", payload_bytes);
+
+//             let payload = SimpleOpsComputeFib::process_invocation(payload_bytes)?;
+//             let res = self.compute_fib_payload(payload).await;
+//             let resp = SimpleOpsComputeFib::Response(res);
+//             let export_payload = resp.invoke_bytes();
+//             return Ok(export_payload);
+//         }
+
+//         Err(InvokeError::HandlerNotFound)
+//     }
+// }
 
 // this is a sample of what the macro implements
 // #[async_trait]

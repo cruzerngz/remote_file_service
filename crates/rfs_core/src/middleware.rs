@@ -6,7 +6,8 @@
 
 mod context_manager;
 
-use std::fmt::Debug;
+use std::{fmt::Debug, net::SocketAddrV4};
+use tokio::net::UdpSocket;
 
 use async_trait::async_trait;
 
@@ -45,6 +46,8 @@ pub enum InvokeError {
 ///
 #[derive(Debug)]
 pub struct Dispatcher<H: Debug + PayloadHandler> {
+    socket: UdpSocket,
+
     // Inner data structure that implements logic for remote interfaces
     handler: H,
 }
@@ -53,16 +56,54 @@ impl<H> Dispatcher<H>
 where
     H: Debug + PayloadHandler,
 {
-    /// Create a new dispatcher from the handler
-    pub fn from_handler(handler: H) -> Self {
-        Self { handler }
+    /// Create a new dispatcher from the handler and a listening IP
+    pub async fn new(addr: SocketAddrV4, handler: H) -> Self {
+        let socket = UdpSocket::bind(addr)
+            .await
+            .expect("failed to bind to specified address");
+
+        Self { socket, handler }
     }
 
     /// Runs the dispatcher indefinitely.
     pub async fn dispatch(&mut self) {
-        loop {}
+        let mut buf = [0; 10_000];
 
-        todo!()
+        loop {
+            // buf.clear();
+
+            match self.socket.recv_from(&mut buf).await {
+                Ok((bytes, addr)) => {
+                    log::debug!("received {} bytes from {}", bytes, addr);
+
+                    // connection packets have zero length
+                    if bytes == 0 {
+                        continue;
+                    }
+
+                    log::debug!("packet has stuff");
+
+                    let copy = &buf[..bytes];
+
+                    // to be spawned as a separate task
+                    let bytes = match self.handler.handle_payload(copy).await {
+                        Ok(res) => {
+                            log::debug!("payload header: {:?}", &res[..20]);
+
+                            self.socket.send_to(&res, addr).await.unwrap()
+                        }
+                        Err(e) => {
+                            log::error!("Invoke error: {:?}", e);
+                            continue;
+                        }
+                    };
+
+                    log::debug!("sent {} bytes to {}", bytes, addr);
+                }
+                // log the error
+                Err(e) => log::error!("Receive error: {}", e),
+            }
+        }
     }
 }
 
@@ -123,6 +164,9 @@ macro_rules! handle_payloads {
             async fn handle_payload(&mut self, payload_bytes: &[u8]) -> Result<Vec<u8>, rfs_core::middleware::InvokeError> {
 
                 $(if let Ok(payload) = <$payload_ty>::process_invocation(payload_bytes) {
+
+                    log::debug!("processing {}", stringify!($payload_ty));
+
                     let res = self.$method(payload).await;
                     let resp = <$payload_ty>::Response(res);
                     let export_payload = resp.invoke_bytes();

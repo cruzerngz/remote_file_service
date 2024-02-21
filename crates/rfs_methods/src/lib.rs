@@ -1,10 +1,13 @@
 //! Remote methods, data structures between server and client are defined here.
 
+mod virt_objects;
+
 use std::path::PathBuf;
 
 use rfs_core::remote_interface;
 
 use rfs_core::RemoteMethodSignature;
+use virt_objects::VirtFile;
 
 /// Immutable file operations are defined in this interface.
 #[remote_interface]
@@ -29,6 +32,20 @@ pub trait ImmutableFileOps {
 pub trait MutableFileOps {
     /// Create a new file at the new path
     async fn create_file(path: PathBuf, truncate: bool) -> Result<(bool, i32), ()>;
+}
+
+/// Remotely invoked primitives, platform agnostic
+#[remote_interface]
+pub trait PrimitiveFsOps {
+    async fn read(path: PathBuf) -> Vec<u8>;
+    async fn write(path: PathBuf) -> bool;
+    async fn create(path: PathBuf) -> VirtFile;
+    async fn remove(path: PathBuf) -> bool;
+    async fn rename(path: PathBuf, from: String, to: String) -> bool;
+
+    async fn mkdir(path: PathBuf) -> bool;
+    async fn rmdir(path: PathBuf) -> bool;
+    async fn read_dir(path: PathBuf) -> bool;
 }
 
 /// Sanity check interface

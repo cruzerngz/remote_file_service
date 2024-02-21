@@ -12,3 +12,5 @@ rfs_macros = { path = "../rfs_macros" }
 async-trait = { workspace = true }
 futures = { workspace = true }
 serde = { workspace = true }
+log = { workspace = true }
+tokio = { workspace = true }

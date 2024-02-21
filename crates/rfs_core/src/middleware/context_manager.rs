@@ -25,6 +25,14 @@ impl ContextManager {
         // OS to assign outgoing port
         let addr = SocketAddrV4::new(source, 0);
 
+        // let sock = UdpSocket::bind(SocketAddrV4::new(source, 0))
+        //     .map_err(|_| InvokeError::RemoteConnectionFailed)
+        //     .unwrap();
+
+        // sock.connect(target).unwrap();
+
+        // sock.send(&[1,2,3,4,5,6,7,8,9,10]).unwrap();
+
         Ok(Self {
             source_ip: source,
             target_ip: target,
@@ -45,11 +53,15 @@ impl ContextManager {
             .connect(self.target_ip)
             .map_err(|_| InvokeError::RemoteConnectionFailed)?;
 
-        source
+        log::debug!("connected to {}", self.target_ip);
+
+        let size = source
             .send(&data)
             .map_err(|_| InvokeError::DataTransmissionFailed)?;
 
-        let mut recv_buf = Vec::new();
+        log::debug!("request sent: {} bytes", size);
+
+        let mut recv_buf = [0; 10_000];
         source
             .recv(&mut recv_buf)
             .map_err(|_| InvokeError::DataTransmissionFailed)?;

@@ -10,8 +10,11 @@ pub(crate) mod remote_method_signature;
 
 /// Generates the necessary code to implement a remote interface.
 ///
-/// As a general rule, parameters and return values can be of any type as long as
-/// they are owned types.
+/// As a general rule, parameters and return values can be of any type as long
+/// as they satisfy these constraints:
+/// - they are owned types (references are not allowed)
+/// - they are concrete types (generics are not allowed)
+/// - they implement serde's `Serialize` and `Deserialize`
 ///
 /// ```no_run
 /// /// This trait defines a remote interface.
