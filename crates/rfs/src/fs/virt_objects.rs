@@ -9,7 +9,7 @@ use futures::{AsyncRead, AsyncWrite, FutureExt};
 use rfs_core::middleware::ContextManager;
 use serde::{Deserialize, Serialize};
 
-use crate::PrimitiveFsOpsClient;
+use crate::interfaces::PrimitiveFsOpsClient;
 
 /// A file that resides over the network in the remote.
 ///

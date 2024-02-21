@@ -5,7 +5,9 @@ use std::{
     str::FromStr,
 };
 
-use rfs_core::middleware::{Dispatcher, RequestServer};
+// use rfs_core::middleware::{Dispatcher, RequestServer};
+
+use rfs::middleware::Dispatcher;
 
 use crate::server::RfsServer;
 

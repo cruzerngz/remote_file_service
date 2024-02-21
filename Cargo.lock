@@ -450,7 +450,6 @@ dependencies = [
  "log",
  "pretty_env_logger",
  "rfs",
- "rfs_core",
  "tokio",
 ]
 
@@ -485,7 +484,6 @@ dependencies = [
  "log",
  "pretty_env_logger",
  "rfs",
- "rfs_core",
  "tokio",
 ]
 
