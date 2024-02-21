@@ -8,7 +8,7 @@ description = "Server binary"
 
 [dependencies]
 rfs_core = { path = "../rfs_core" }
-rfs_methods = { path = "../rfs_methods" }
+rfs = { path = "../rfs" }
 
 async-trait = { workspace = true }
 clap = { workspace = true }

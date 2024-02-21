@@ -8,7 +8,7 @@ description = "Client binary"
 
 [dependencies]
 rfs_core = { path = "../rfs_core" }
-rfs_methods = { path = "../rfs_methods" }
+rfs = { path = "../rfs" }
 
 
 clap = { workspace = true }

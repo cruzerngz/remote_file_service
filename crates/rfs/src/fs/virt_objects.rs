@@ -24,6 +24,12 @@ pub struct VirtFile {
     local_buf: Vec<u8>,
 }
 
+/// Open a virtual file and specify some options.
+///
+/// Attempts to mirror [std::fs::OpenOptions].
+#[derive(Clone, Debug)]
+pub struct VirtOpenOptions {}
+
 impl VirtFile {
     /// Create a new file on the remote.
     ///

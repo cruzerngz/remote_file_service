@@ -2,7 +2,7 @@ use std::net::{Ipv4Addr, SocketAddrV4};
 
 use futures::AsyncWriteExt;
 use rfs_core::middleware::ContextManager;
-use rfs_methods::*;
+use rfs::*;
 
 #[tokio::main]
 async fn main() {
@@ -19,11 +19,12 @@ async fn main() {
     // log::info!("{:?}", res);
 
     log::debug!("creating file on the remote");
-    let mut remote_file = rfs_methods::fs::VirtFile::create(manager, "remote_file.txt")
+    let mut remote_file = rfs::fs::VirtFile::create(manager, "remote_file.txt")
         .await
         .expect("file creation error");
 
-    remote_file.write("hello world asdlkmasldkmalskd\n".as_bytes())
+    remote_file
+        .write("hello world asdlkmasldkmalskd\n".as_bytes())
         .await
         .expect("failed to write to file");
 

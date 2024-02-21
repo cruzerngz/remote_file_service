@@ -1,5 +1,5 @@
 [package]
-name = "rfs_methods"
+name = "rfs"
 version = "0.1.0"
 edition.workspace = true
 description = "remote method invocation definitions between server and client"
