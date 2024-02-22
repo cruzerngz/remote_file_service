@@ -236,7 +236,7 @@ impl<T> RequestServer for T where T: PayloadHandler {}
 /// }
 /// ```
 #[macro_export]
-macro_rules! handle_payloads {
+macro_rules! payload_handler {
     ($server_ty: ty,
         $($payload_ty: ty => $trait: ident :: $method: ident),+,
     ) => {

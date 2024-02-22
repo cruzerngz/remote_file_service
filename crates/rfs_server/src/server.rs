@@ -3,7 +3,7 @@
 
 // use crate::server::middleware::PayloadHandler;
 use rfs::{
-    handle_payloads,
+    payload_handler,
     middleware::{InvokeError, PayloadHandler},
     RemoteMethodSignature, RemotelyInvocable,
 };
@@ -166,7 +166,7 @@ impl SimpleOps for RfsServer {
 }
 
 // assign dispatch paths to the server.
-handle_payloads! {
+payload_handler! {
     RfsServer,
     // ImmutableFileOpsReadFile => ImmutableFileOps::read_file_payload,
     // MutableFileOpsCreateFile => MutableFileOps::create_file_payload,
