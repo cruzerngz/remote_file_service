@@ -8,7 +8,8 @@ mod context_manager;
 
 use std::{
     fmt::Debug,
-    net::{SocketAddrV4, UdpSocket},
+    io,
+    net::{SocketAddr, SocketAddrV4, UdpSocket},
 };
 // use tokio::net::UdpSocket;
 
@@ -19,7 +20,10 @@ use crate::{ser_de, RemotelyInvocable};
 pub use context_manager::ContextManager;
 
 /// Error header send between the dispatcher and context manager
-const ERROR_HEADER: &[u8] = "ERROR_ERROR_ERROR_ERROR".as_bytes();
+const ERROR_HEADER: &[u8] = "ERROR_ERROR_ERROR_ERROR_HEADER".as_bytes();
+/// Header used when communicating directly between the context manager
+/// and the dispatcher.
+const MIDDLWARE_HEADER: &[u8] = "MIDDLEWARE_HEADER".as_bytes();
 
 /// Method invocation errors
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -47,6 +51,18 @@ pub enum InvokeError {
 
     /// Remote received an error
     RemoteReceiveError,
+}
+
+/// Middleware-specific data sent between the context manager and the dispatcher
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub enum MiddlewareData {
+    /// Send a message to the remote, expects an echo
+    Ping,
+}
+
+/// Handle middleware messages, either from the client or remote.
+pub trait HandleMiddleware {
+    fn handle_middleware(&self, data: MiddlewareData) -> Self;
 }
 
 /// The dispatcher for remote invocations.
@@ -110,8 +126,13 @@ where
                     }
 
                     log::debug!("packet has stuff");
-
                     let copy = &buf[..bytes];
+
+                    if copy.starts_with(MIDDLWARE_HEADER) {
+                        self.handle_middleware_data(copy, addr)
+                            .expect("failed to send back to source");
+                        continue;
+                    }
 
                     // to be spawned as a separate task
                     let bytes = match self.handler.handle_payload(copy).await {
@@ -142,6 +163,28 @@ where
                 }
             }
         }
+    }
+
+    /// Handle inter-middleware comms
+    fn handle_middleware_data(
+        &self,
+        middleware_data: &[u8],
+        reply_addr: SocketAddr,
+    ) -> io::Result<()> {
+        let data: MiddlewareData =
+            ser_de::deserialize_packed_with_header(&middleware_data, MIDDLWARE_HEADER).unwrap();
+
+        log::debug!("middleware: {:?}", data);
+
+        let res = match data {
+            MiddlewareData::Ping => MiddlewareData::Ping,
+        };
+
+        self.socket.send_to(
+            &ser_de::serialize_packed_with_header(&res, MIDDLWARE_HEADER).unwrap(),
+            reply_addr,
+        )?;
+        Ok(())
     }
 }
 

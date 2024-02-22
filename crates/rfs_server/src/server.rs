@@ -7,7 +7,12 @@ use rfs::{
     middleware::{InvokeError, PayloadHandler},
     RemoteMethodSignature, RemotelyInvocable,
 };
-use std::{fs::OpenOptions, io::Write, path::PathBuf, time::Duration};
+use std::{
+    fs::OpenOptions,
+    io::Write,
+    path::{Path, PathBuf},
+    time::Duration,
+};
 
 use async_trait::async_trait;
 use rfs::interfaces::*;
@@ -30,6 +35,12 @@ impl Default for RfsServer {
         Self {
             home: PathBuf::from(exe_dir),
         }
+    }
+}
+
+impl RfsServer {
+    pub fn from_path(p: PathBuf) -> Self {
+        Self { home: p }
     }
 }
 

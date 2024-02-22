@@ -7,6 +7,12 @@ pub use rfs_core::{
     handle_payloads, middleware, RemoteMethodSignature, RemoteRequest, RemotelyInvocable,
 };
 
+/// Default constants used between a client and the remote.
+pub mod defaults {
+    /// The default port used by the remote
+    pub const DEFAULT_PORT: u16 = 4013;
+}
+
 #[cfg(test)]
 #[allow(unused)]
 mod tests {

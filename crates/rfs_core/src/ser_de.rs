@@ -43,6 +43,25 @@ where
     deserialize(&byte_packer::unpack_bytes(bytes))
 }
 
+/// Serialize a data structure with a header appended to the start
+pub fn serialize_packed_with_header<T: serde::Serialize>(
+    value: &T,
+    header: &[u8],
+) -> SerDeResult<Vec<u8>> {
+    Ok([header, &serialize_packed(value)?].concat())
+}
+
+/// Match headers and then deserialize a sequence of bytes
+pub fn deserialize_packed_with_header<T>(bytes: &[u8], header: &[u8]) -> SerDeResult<T>
+where
+    T: for<'a> serde::Deserialize<'a>,
+{
+    match bytes.starts_with(header) {
+        true => deserialize_packed(&bytes[header.len()..]),
+        false => Err(err::Error::MalformedData),
+    }
+}
+
 /// A reference into an existing slice of bytes.
 ///
 /// This data structure can perform various (immutable) operations on a slice of
@@ -211,6 +230,8 @@ impl<'arr> ByteViewer<'arr> {
 mod tests {
     use std::{collections::HashMap, fmt::Debug};
 
+    use crate::RemoteMethodSignature;
+
     use super::*;
     use serde::{Deserialize, Serialize};
 
@@ -272,6 +293,12 @@ mod tests {
         map: HashMap<String, u64>,
     }
 
+    impl RemoteMethodSignature for AllTheThings {
+        fn remote_method_signature() -> &'static [u8] {
+            "AllTheThingsPayload".as_bytes()
+        }
+    }
+
     /// Performs a ser-de process
     fn ser_de_loop<T: Debug + PartialEq + Serialize + for<'a> Deserialize<'a>>(input: &T) {
         let ser = serialize(&input).unwrap();
@@ -302,6 +329,19 @@ mod tests {
         println!("{:?}", des);
 
         assert_eq!(*input, des)
+    }
+
+    fn ser_de_pack_header_loop<T>(input: &T)
+    where
+        T: Debug + PartialEq + Serialize + for<'a> Deserialize<'a> + RemoteMethodSignature,
+    {
+        let ser = serialize_packed_with_header(&input, T::remote_method_signature()).unwrap();
+        println!("serialized: {} - {:?}", ser.len(), ser);
+
+        let des: T = deserialize_packed_with_header(&ser, T::remote_method_signature()).unwrap();
+
+        println!("{:?}", des);
+        assert_eq!(*input, des);
     }
 
     #[test]
@@ -423,6 +463,7 @@ mod tests {
 
         ser_de_loop(&everything);
         ser_de_pack_loop(&everything);
+        ser_de_pack_header_loop(&everything);
     }
 
     #[test]

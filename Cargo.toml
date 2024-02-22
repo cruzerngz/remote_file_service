@@ -18,4 +18,4 @@ serde = { version = "1", features = ["derive"] }
 # bin stuffs
 pretty_env_logger = "0"
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "time", "net"] }
-clap = { version = "4", features = ["derive"] }
+clap = { version = "4", features = ["derive", "string"] }

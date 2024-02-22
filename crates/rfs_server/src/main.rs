@@ -1,5 +1,8 @@
 #![allow(unused)]
 
+mod args;
+mod server;
+
 use std::{
     net::{Ipv4Addr, SocketAddrV4},
     str::FromStr,
@@ -7,20 +10,19 @@ use std::{
 
 // use rfs_core::middleware::{Dispatcher, RequestServer};
 
+use clap::Parser;
 use rfs::middleware::Dispatcher;
 
-use crate::server::RfsServer;
-
-mod server;
+use crate::{args::ServerArgs, server::RfsServer};
 
 #[tokio::main]
 async fn main() {
     std::env::set_var("RUST_LOG", "DEBUG");
     pretty_env_logger::init();
 
-    let server = RfsServer::default();
-
-    let addr = SocketAddrV4::new(Ipv4Addr::LOCALHOST, 3333);
+    let args = ServerArgs::parse();
+    let server = RfsServer::from_path(args.path);
+    let addr = SocketAddrV4::new(args.address, args.port);
 
     log::info!("server listening on {}", addr);
 

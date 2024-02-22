@@ -1,7 +1,11 @@
-use std::net::{Ipv4Addr, SocketAddrV4, UdpSocket};
+use std::{
+    io,
+    net::{Ipv4Addr, SocketAddrV4, UdpSocket},
+    thread::panicking,
+};
 
 use crate::{
-    middleware::ERROR_HEADER,
+    middleware::{MiddlewareData, ERROR_HEADER, MIDDLWARE_HEADER},
     ser_de::{self, ByteViewer},
     RemotelyInvocable,
 };
@@ -26,27 +30,48 @@ impl ContextManager {
     ///
     /// TODO: bind and wait for server to become online.
     pub fn new(source: Ipv4Addr, target: SocketAddrV4) -> std::io::Result<Self> {
-        // OS to assign outgoing port
-        let addr = SocketAddrV4::new(source, 0);
-
-        // let sock = UdpSocket::bind(SocketAddrV4::new(source, 0))
-        //     .map_err(|_| InvokeError::RemoteConnectionFailed)
-        //     .unwrap();
-
-        // sock.connect(target).unwrap();
-
-        // sock.send(&[1,2,3,4,5,6,7,8,9,10]).unwrap();
-
-        Ok(Self {
+        let s = Self {
             source_ip: source,
             target_ip: target,
-        })
+        };
+
+        let sock = s.generate_socket()?;
+
+        log::debug!("establishing initial conn with remote...");
+        sock.connect(s.target_ip)?;
+        log::debug!("connection established, establishing handshake...");
+
+        let payload = MiddlewareData::Ping;
+
+        sock.send_to(
+            &ser_de::serialize_packed_with_header(&payload, MIDDLWARE_HEADER).unwrap(),
+            s.target_ip,
+        )?;
+
+        let mut buf = [0; 1000];
+        let recv_bytes = sock.recv(&mut buf).unwrap();
+
+        let revc_data: MiddlewareData =
+            ser_de::deserialize_packed_with_header(&buf[..recv_bytes], MIDDLWARE_HEADER).unwrap();
+
+        match revc_data == payload {
+            true => {
+                log::debug!("handshake successful");
+
+                Ok(s)
+            }
+            false => {
+                log::debug!("handshake unsuccessful");
+
+                Err(io::Error::new(io::ErrorKind::Other, "you are a failure"))
+            }
+        }
     }
 
     /// Send an invocation over the network, and returns the result.
     pub async fn invoke<P: RemotelyInvocable>(&self, payload: P) -> Result<P, InvokeError> {
         // send to server and wait for a reply
-        let data = &payload.invoke_bytes()[..40];
+        let data = &payload.invoke_bytes();
 
         // for now, bind and connect on every invocation
 
@@ -79,5 +104,13 @@ impl ContextManager {
         } else {
             P::process_invocation(&recv_buf)
         }
+    }
+
+    /// Create and bind to a new socket, with an arbitary port
+    fn generate_socket(&self) -> io::Result<UdpSocket> {
+        let sock = UdpSocket::bind(SocketAddrV4::new(self.source_ip, 0))?;
+
+        // sock.connect(self.target_ip)?;
+        Ok(sock)
     }
 }
