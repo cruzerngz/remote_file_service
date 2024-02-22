@@ -228,7 +228,7 @@ impl<T> RequestServer for T where T: PayloadHandler {}
 /// }
 ///
 ///
-/// handle_payloads! {
+/// payload_handler! {
 ///     Server,
 ///     // we use the '`method_name`_payload' method.
 ///      ImmutableFileOpsReadFile => ImmutableFileOps::read_file_payload
