@@ -1,8 +1,5 @@
 //! Simple byte packing, for reducing the size of a sequence of
 //! bytes that contain continuous sequences of `0`s.
-#![allow(unused)]
-
-use core::num;
 
 use crate::ser_de::ByteViewer;
 
@@ -87,19 +84,15 @@ pub fn unpack_bytes(input: &[u8]) -> Vec<u8> {
             _ => (),
         }
 
-        let window = viewer.next_bytes(3, false);
-        let (l_delim, r_delim) = (window[0], window[2]);
-        let count = window[1];
+        let window = viewer.next_bytes_fixed::<3>(false);
 
-        match l_delim == BYTE_COUNT_DELIM && r_delim == BYTE_COUNT_DELIM {
-            // expand the zeroes
-            true => {
+        match window {
+            [BYTE_COUNT_DELIM, count, BYTE_COUNT_DELIM] => {
                 let expanded = [0_u8].repeat(count as usize);
                 unpacked.extend(expanded);
                 viewer.advance(3).unwrap();
             }
-            // push a single byte
-            false => unpacked.push(viewer.next_byte()),
+            _ => unpacked.push(viewer.next_byte()),
         }
     }
 
