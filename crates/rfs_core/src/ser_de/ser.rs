@@ -4,9 +4,11 @@ use serde::{ser, Serialize};
 
 use super::consts::{self, ByteSizePrefix};
 
-/// This data structure contains the serialized bytes of any arbitrary data structure.
+/// Custom serializer. The counterpart to [RfsDeserializer][crate::ser_de::de::RfsDeserializer].
 ///
-/// Structs/enums to be serialized need to derive [serde::Serialize].
+/// This serializer serializes any data structure that derives [serde::Serialize].
+///
+/// The output from serialization is **NOT** valid UTF-8!
 pub struct RfsSerializer {
     pub(crate) output: Vec<u8>,
 }
@@ -21,9 +23,9 @@ impl Default for RfsSerializer {
 
 /// Impl serialize for primitives
 macro_rules! serialize_numeric_primitive {
-    ($fn_name: ident, $num_type: ty => $conv_type: ty) => {
+    ($fn_name: ident, $num_type: ty => $conv_type: ty, $prefix: path) => {
         fn $fn_name(self, v: $num_type) -> Result<Self::Ok, Self::Error> {
-            self.output.push(consts::PREFIX_NUM);
+            self.output.push($prefix);
             self.output.extend((v as $conv_type).to_be_bytes());
             Ok(())
         }
@@ -70,23 +72,18 @@ impl<'a> ser::Serializer for &'a mut RfsSerializer {
         Ok(())
     }
 
-    serialize_numeric_primitive! {serialize_i8, i8 => i64}
-    serialize_numeric_primitive! {serialize_i16, i16 => i64}
-    serialize_numeric_primitive! {serialize_i32, i32 => i64}
-    serialize_numeric_primitive! {serialize_i64, i64 => i64}
+    serialize_numeric_primitive! {serialize_i8, i8 => i64, consts::PREFIX_NUM}
+    serialize_numeric_primitive! {serialize_i16, i16 => i64, consts::PREFIX_NUM}
+    serialize_numeric_primitive! {serialize_i32, i32 => i64, consts::PREFIX_NUM}
+    serialize_numeric_primitive! {serialize_i64, i64 => i64, consts::PREFIX_NUM}
 
-    serialize_numeric_primitive! {serialize_u8, u8 => u64}
-    serialize_numeric_primitive! {serialize_u16, u16 => u64}
-    serialize_numeric_primitive! {serialize_u32, u32 => u64}
-    serialize_numeric_primitive! {serialize_u64, u64 => u64}
+    serialize_numeric_primitive! {serialize_u8, u8 => u64, consts::PREFIX_NUM}
+    serialize_numeric_primitive! {serialize_u16, u16 => u64, consts::PREFIX_NUM}
+    serialize_numeric_primitive! {serialize_u32, u32 => u64, consts::PREFIX_NUM}
+    serialize_numeric_primitive! {serialize_u64, u64 => u64, consts::PREFIX_NUM}
 
-    fn serialize_f32(self, _: f32) -> Result<Self::Ok, Self::Error> {
-        unimplemented!("float serialization is not supported.")
-    }
-
-    fn serialize_f64(self, _: f64) -> Result<Self::Ok, Self::Error> {
-        unimplemented!("float serialization is not supported.")
-    }
+    serialize_numeric_primitive! {serialize_f32, f32 => f64, consts::PREFIX_FLOAT}
+    serialize_numeric_primitive! {serialize_f64, f64 => f64, consts::PREFIX_FLOAT}
 
     fn serialize_char(self, v: char) -> Result<Self::Ok, Self::Error> {
         self.output.extend((v as u32).to_be_bytes());

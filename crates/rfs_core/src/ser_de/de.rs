@@ -9,9 +9,12 @@ use crate::ser_de::consts;
 
 use super::{consts::ByteSizePrefix, err, ByteViewer};
 
-/// This data structure contains the serialized bytes of any arbitrary data structure.
+/// Custom deserializer. The counterpart to [RfsSerializer][crate::ser_de::ser::RfsSerializer].
 ///
-/// Structs/enums to be deserialized need to derive [serde::Deserialize].
+/// This deserializer can deserialize the bytes of any data structure serialized using
+/// it's associated serializer.
+///
+/// Structs/enums to be deserialized will need to derive [serde::Deserialize].
 pub struct RfsDeserializer<'de> {
     input: ByteViewer<'de>,
 }
@@ -26,17 +29,18 @@ impl<'de> RfsDeserializer<'de> {
 
 /// Impl deserialize for primitives
 macro_rules! deserialize_numeric_primitive {
-    ($fn_name: ident: $visitor_fn: ident, $conv_type: ty => $data_type: ty) => {
+    ($fn_name: ident: $visitor_fn: ident, $conv_type: ty => $data_type: ty, $prefix: path) => {
         fn $fn_name<V>(self, visitor: V) -> Result<V::Value, Self::Error>
         where
             V: de::Visitor<'de>,
         {
-            validate_bytes! {
+            validate_next_byte! {
                 self.input,
-                consts::PREFIX_NUM
-                => Self::Error::PrefixNotMatched(consts::PREFIX_NUM)
+                $prefix
+                => Self::Error::PrefixNotMatched($prefix)
             }
 
+            // *all* numeric types serialize to 8 bytes
             const NUM_BYTES: usize = std::mem::size_of::<ByteSizePrefix>();
 
             require_bytes! {self.input, NUM_BYTES, err::Error::OutOfBytes};
@@ -76,7 +80,7 @@ macro_rules! require_bytes {
 /// Validate the correctness of the next byte from [ByteViewer] and a reference.
 ///
 /// Pass in the appropriate error to return when the bytes do not match
-macro_rules! validate_bytes {
+macro_rules! validate_next_byte {
     ($viewer: expr, $known: path => $err: expr) => {
         require_bytes! {$viewer, 1, err::Error::OutOfBytes};
 
@@ -153,29 +157,18 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut RfsDeserializer<'de> {
         }
     }
 
-    deserialize_numeric_primitive! {deserialize_i64: visit_i64, i64 => i64}
-    deserialize_numeric_primitive! {deserialize_i32: visit_i32, i64 => i32}
-    deserialize_numeric_primitive! {deserialize_i16: visit_i16, i64 => i16}
-    deserialize_numeric_primitive! {deserialize_i8: visit_i8, i64 => i8}
+    deserialize_numeric_primitive! {deserialize_i64: visit_i64, i64 => i64, consts::PREFIX_NUM}
+    deserialize_numeric_primitive! {deserialize_i32: visit_i32, i64 => i32, consts::PREFIX_NUM}
+    deserialize_numeric_primitive! {deserialize_i16: visit_i16, i64 => i16, consts::PREFIX_NUM}
+    deserialize_numeric_primitive! {deserialize_i8: visit_i8, i64 => i8, consts::PREFIX_NUM}
 
-    deserialize_numeric_primitive! {deserialize_u64: visit_u64, u64 => u64}
-    deserialize_numeric_primitive! {deserialize_u32: visit_u32, u64 => u32}
-    deserialize_numeric_primitive! {deserialize_u16: visit_u16, u64 => u16}
-    deserialize_numeric_primitive! {deserialize_u8: visit_u8, u64 => u8}
+    deserialize_numeric_primitive! {deserialize_u64: visit_u64, u64 => u64, consts::PREFIX_NUM}
+    deserialize_numeric_primitive! {deserialize_u32: visit_u32, u64 => u32, consts::PREFIX_NUM}
+    deserialize_numeric_primitive! {deserialize_u16: visit_u16, u64 => u16, consts::PREFIX_NUM}
+    deserialize_numeric_primitive! {deserialize_u8: visit_u8, u64 => u8, consts::PREFIX_NUM}
 
-    fn deserialize_f32<V>(self, _: V) -> Result<V::Value, Self::Error>
-    where
-        V: de::Visitor<'de>,
-    {
-        unimplemented!("float serialization is not supported.")
-    }
-
-    fn deserialize_f64<V>(self, _: V) -> Result<V::Value, Self::Error>
-    where
-        V: de::Visitor<'de>,
-    {
-        unimplemented!("float serialization is not supported.")
-    }
+    deserialize_numeric_primitive! {deserialize_f32: visit_f32, f64 => f32, consts::PREFIX_FLOAT}
+    deserialize_numeric_primitive! {deserialize_f64: visit_f64 , f64 => f64, consts::PREFIX_FLOAT}
 
     fn deserialize_char<V>(self, visitor: V) -> Result<V::Value, Self::Error>
     where
@@ -199,7 +192,7 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut RfsDeserializer<'de> {
         // let next = self.input.peek().unwrap();
         // println!("next byte: {} ({})", next, *next as char);
 
-        validate_bytes! {
+        validate_next_byte! {
             self.input, consts::PREFIX_STR => Self::Error::PrefixNotMatched(consts::PREFIX_STR)
         }
 
@@ -219,7 +212,7 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut RfsDeserializer<'de> {
     where
         V: de::Visitor<'de>,
     {
-        validate_bytes! {
+        validate_next_byte! {
             self.input, consts::PREFIX_STR => Self::Error::PrefixNotMatched(consts::PREFIX_STR)
         }
 
@@ -271,7 +264,7 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut RfsDeserializer<'de> {
     where
         V: de::Visitor<'de>,
     {
-        validate_bytes! {self.input, consts::PREFIX_OPTIONAL => Self::Error::PrefixNotMatched(consts::PREFIX_OPTIONAL) }
+        validate_next_byte! {self.input, consts::PREFIX_OPTIONAL => Self::Error::PrefixNotMatched(consts::PREFIX_OPTIONAL) }
 
         require_bytes! {self.input, 1, err::Error::OutOfBytes};
         let variant = self.input.next_byte();
@@ -326,17 +319,17 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut RfsDeserializer<'de> {
         V: de::Visitor<'de>,
     {
         // note that vecs and tuples have different delimiters
-        validate_bytes! {
+        validate_next_byte! {
             self.input, consts::PREFIX_SEQ => Self::Error::PrefixNotMatched(consts::PREFIX_SEQ)
         }
-        validate_bytes! {
+        validate_next_byte! {
             self.input, consts::SEQ_OPEN => Self::Error::DelimiterNotFound(consts::SEQ_OPEN )
         }
 
         let accessor = CollectionsAccessor::from_deserializer(self, consts::SEQ_CLOSE);
         let val = visitor.visit_seq(accessor);
 
-        validate_bytes! {
+        validate_next_byte! {
             self.input, consts::SEQ_CLOSE => Self::Error::DelimiterNotFound(consts::SEQ_CLOSE )
         }
 
@@ -348,17 +341,17 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut RfsDeserializer<'de> {
         V: de::Visitor<'de>,
     {
         // note that tuples and vecs have different delimiters
-        validate_bytes! {
+        validate_next_byte! {
             self.input, consts::PREFIX_SEQ_CONST => Self::Error::PrefixNotMatched(consts::PREFIX_SEQ_CONST)
         }
-        validate_bytes! {
+        validate_next_byte! {
             self.input, consts::SEQ_CONST_OPEN => Self::Error::DelimiterNotFound(consts::SEQ_CONST_OPEN )
         }
 
         let accessor = CollectionsAccessor::from_deserializer(self, consts::SEQ_CONST_CLOSE);
         let val = visitor.visit_seq(accessor);
 
-        validate_bytes! {
+        validate_next_byte! {
             self.input, consts::SEQ_CONST_CLOSE => Self::Error::DelimiterNotFound(consts::SEQ_CONST_CLOSE )
         }
 
@@ -381,10 +374,10 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut RfsDeserializer<'de> {
     where
         V: de::Visitor<'de>,
     {
-        validate_bytes! {
+        validate_next_byte! {
             self.input, consts::PREFIX_MAP => Self::Error::PrefixNotMatched(consts::PREFIX_MAP)
         }
-        validate_bytes! {
+        validate_next_byte! {
             self.input, consts::MAP_OPEN => Self::Error::DelimiterNotFound(
                 consts::MAP_OPEN ,
             )
@@ -394,7 +387,7 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut RfsDeserializer<'de> {
 
         let val = visitor.visit_map(accessor);
 
-        validate_bytes! {
+        validate_next_byte! {
             self.input, consts::MAP_CLOSE => Self::Error::DelimiterNotFound(
                 consts::MAP_CLOSE ,
             )
@@ -428,7 +421,7 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut RfsDeserializer<'de> {
         // let next = self.input.peek().unwrap();
         // println!("next byte: {} ({})", next, *next );
 
-        validate_bytes! {
+        validate_next_byte! {
             self.input, consts::PREFIX_ENUM => Self::Error::PrefixNotMatched(consts::PREFIX_ENUM)
         }
 
@@ -495,7 +488,7 @@ impl<'a, 'de> MapAccess<'de> for CollectionsAccessor<'a, 'de> {
             return Ok(None);
         }
 
-        validate_bytes! {
+        validate_next_byte! {
             self.des.input, consts::MAP_ENTRY_OPEN => Self::Error::DelimiterNotFound(
                 consts::MAP_ENTRY_OPEN
             )
@@ -510,7 +503,7 @@ impl<'a, 'de> MapAccess<'de> for CollectionsAccessor<'a, 'de> {
     where
         V: de::DeserializeSeed<'de>,
     {
-        validate_bytes! {
+        validate_next_byte! {
             self.des.input, consts::MAP_ENTRY_MID => Self::Error::DelimiterNotFound(
                 consts::MAP_ENTRY_MID
             )
@@ -518,7 +511,7 @@ impl<'a, 'de> MapAccess<'de> for CollectionsAccessor<'a, 'de> {
 
         let val = seed.deserialize(&mut *self.des);
 
-        validate_bytes! {
+        validate_next_byte! {
             self.des.input, consts::MAP_ENTRY_CLOSE => Self::Error::DelimiterNotFound(
                 consts::MAP_ENTRY_CLOSE
             )
@@ -543,7 +536,7 @@ impl<'a, 'de> MapAccess<'de> for CollectionsAccessor<'a, 'de> {
             return Ok(None);
         }
 
-        validate_bytes! {
+        validate_next_byte! {
             self.des.input, consts::MAP_ENTRY_OPEN => Self::Error::DelimiterNotFound(
                 consts::MAP_ENTRY_OPEN
             )
@@ -551,7 +544,7 @@ impl<'a, 'de> MapAccess<'de> for CollectionsAccessor<'a, 'de> {
 
         let key = kseed.deserialize(&mut *self.des)?;
 
-        validate_bytes! {
+        validate_next_byte! {
             self.des.input, consts::MAP_ENTRY_MID => Self::Error::DelimiterNotFound(
                 consts::MAP_ENTRY_MID
             )
@@ -559,7 +552,7 @@ impl<'a, 'de> MapAccess<'de> for CollectionsAccessor<'a, 'de> {
 
         let val = vseed.deserialize(&mut *self.des)?;
 
-        validate_bytes! {
+        validate_next_byte! {
             self.des.input, consts::MAP_ENTRY_CLOSE => Self::Error::DelimiterNotFound(
                 consts::MAP_ENTRY_CLOSE
             )

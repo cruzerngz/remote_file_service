@@ -1,13 +1,14 @@
 //! Serialization and deserialization module
-// #![allow(unused)]
 
-use self::{consts::ByteSizePrefix, err::SerDeResult};
+use self::err::SerDeResult;
 
 pub mod byte_packer;
 mod consts;
 pub mod de;
 pub mod err;
 pub mod ser;
+
+pub use consts::ByteSizePrefix;
 
 /// Serialize a data structure to a vector of bytes
 pub fn serialize<T: serde::Serialize>(value: &T) -> SerDeResult<Vec<u8>> {
@@ -270,6 +271,8 @@ mod tests {
         u16: u16,
         u32: u32,
         u64: u64,
+        f32: f32,
+        f64: f64,
     }
 
     #[derive(Debug, Serialize, Deserialize, PartialEq)]
@@ -436,6 +439,9 @@ mod tests {
                 u16: 1_000,
                 u32: 1_000_000_000,
                 u64: 1_000_000_000_000,
+
+                f32: 3.14,
+                f64: 1.414213562373095048801,
             },
             byteslike: ContiguousBytes {
                 s: "this is data for an owned string".to_string(),

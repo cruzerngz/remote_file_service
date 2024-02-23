@@ -2,6 +2,9 @@
 
 /// The primitive data type that prefixes an arbitrary array of
 /// bytes.
+///
+/// This type also happens to occupy the same size (8 bytes) as all serialized numeric primitives,
+/// so it is used for deserializing all numeric primitives as well.
 pub type ByteSizePrefix = u64;
 
 pub const OPTION_SOME: u8 = u8::MAX;
@@ -45,6 +48,9 @@ pub const PREFIX_MAP: u8 = 'm' as u8;
 
 /// `e` for enums
 pub const PREFIX_ENUM: u8 = 'e' as u8;
+
+/// `f` for floating points
+pub const PREFIX_FLOAT: u8 = 'f' as u8;
 
 // byte delimiters for
 // collections
