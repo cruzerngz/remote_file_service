@@ -1,56 +1,43 @@
 mod args;
+mod ui;
 
-use std::net::{Ipv4Addr, SocketAddrV4};
+use std::io::{self, Write};
 
-use clap::Parser;
-use futures::{AsyncReadExt, AsyncWriteExt};
+// use clap::Parser;
+use crossterm::event::{self, KeyCode, KeyEventKind};
+// use futures::{AsyncReadExt, AsyncWriteExt};
+use ratatui::{backend::CrosstermBackend, style::Stylize, widgets, Terminal};
 // use rfs_core::middleware::ContextManager;
-use rfs::{interfaces::*, middleware::ContextManager};
-
-use crate::args::ClientArgs;
+// use rfs::{interfaces::*, middleware::ContextManager};
 
 #[tokio::main]
-async fn main() {
-    std::env::set_var("RUST_LOG", "DEBUG");
-    pretty_env_logger::init();
+async fn main() -> io::Result<()> {
+    let term = ui::init()?;
 
-    let args = ClientArgs::parse();
+    render_loop(term).await?;
 
-    let manager = ContextManager::new(
-        Ipv4Addr::LOCALHOST,
-        SocketAddrV4::new(args.target, args.port),
-    )
-    .expect("failed to initialize context manager");
+    ui::restore()?;
 
-    // let res = SimpleOpsClient::compute_fib(&manager, 10).await;
-    // log::info!("{:?}", res);
+    Ok(())
+}
 
-    // log::debug!("creating file on the remote");
-    // let mut remote_file = rfs::fs::VirtFile::create(manager, "remote_file.txt")
-    //     .await
-    //     .expect("file creation error");
-    // remote_file
-    // .write("hello world asdlkmasldkmalskd\n".as_bytes())
-    // .await
-    // .expect("failed to write to file");
+async fn render_loop<W: Write>(mut term: Terminal<CrosstermBackend<W>>) -> io::Result<()> {
+    loop {
+        term.draw(|frame| {
+            let area = frame.size();
 
-    // let contents = rfs::fs::read_to_string(manager, "remote_file.txt")
-    //     .await
-    //     .expect("failed to read file");
-    // println!("contents: {}", contents);
+            frame.render_widget(
+                widgets::Paragraph::new("Hello world from ratatui!").white(),
+                area,
+            )
+        })?;
 
-    PrimitiveFsOpsClient::write_append_bytes(
-        &manager,
-        "remote_file.txt".to_owned(),
-        "new line\n".as_bytes().to_vec(),
-    )
-    .await
-    .unwrap();
-
-    // let req = PrimitiveFsOpsClient::Request {
-    //     path: "remote_file.txt".to_string(),
-    //     bytes: "new line".as_bytes().to_vec(),
-    // };
-
-    return;
+        if event::poll(std::time::Duration::from_millis(16))? {
+            if let event::Event::Key(k) = event::read()? {
+                if k.kind == KeyEventKind::Press && k.code == KeyCode::Char('q') {
+                    break Ok(());
+                }
+            }
+        }
+    }
 }
