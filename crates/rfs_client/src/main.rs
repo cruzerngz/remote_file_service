@@ -12,9 +12,10 @@ use ratatui::{backend::CrosstermBackend, style::Stylize, widgets, Terminal};
 
 #[tokio::main]
 async fn main() -> io::Result<()> {
-    let term = ui::init()?;
+    let mut term = ui::init()?;
 
-    render_loop(term).await?;
+    let mut app = ui::App::default();
+    app.run(&mut term).await?;
 
     ui::restore()?;
 
