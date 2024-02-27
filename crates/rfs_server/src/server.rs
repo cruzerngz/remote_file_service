@@ -3,12 +3,11 @@
 
 // use crate::server::middleware::PayloadHandler;
 use rfs::{
-    payload_handler,
     middleware::{InvokeError, PayloadHandler},
-    RemoteMethodSignature, RemotelyInvocable,
+    payload_handler, RemoteMethodSignature, RemotelyInvocable,
 };
 use std::{
-    fs::OpenOptions,
+    fs::{self, OpenOptions},
     io::Write,
     path::{Path, PathBuf},
     time::Duration,
@@ -64,20 +63,37 @@ impl MutableFileOps for RfsServer {
 
 #[async_trait]
 impl PrimitiveFsOps for RfsServer {
-    async fn read(&mut self, path: String) -> Vec<u8> {
-        let file = match std::fs::read(path) {
+    async fn read_bytes(&mut self, path: String) -> Vec<u8> {
+        let mut full_path = self.home.clone();
+        full_path.push(path);
+
+        log::debug!("reading file: {:?}", full_path);
+
+        let file = match std::fs::read(full_path) {
             Ok(s) => s,
-            Err(_) => vec![],
+            Err(e) => {
+                log::error!("read error: {}", e);
+
+                vec![]
+            }
         };
+
+        log::debug!("file contents: {:?}", file);
 
         file
     }
 
-    async fn write(&mut self, path: String) -> bool {
-        todo!()
+    async fn write_bytes(&mut self, path: String, contents: Vec<u8>) -> bool {
+        let mut full_path = self.home.clone();
+        full_path.push(path);
+
+        match fs::write(full_path, contents) {
+            Ok(_) => true,
+            Err(_) => false,
+        }
     }
 
-    async fn write_file_bytes(&mut self, path: String, bytes: Vec<u8>) -> usize {
+    async fn write_append_bytes(&mut self, path: String, bytes: Vec<u8>) -> usize {
         let mut start = self.home.clone();
         start.push(path);
 
@@ -175,11 +191,11 @@ payload_handler! {
     SimpleOpsComputeFib => SimpleOps::compute_fib_payload,
 
     // primitive ops
-    PrimitiveFsOpsRead => PrimitiveFsOps::read_payload,
-    PrimitiveFsOpsWrite => PrimitiveFsOps::write_payload,
+    PrimitiveFsOpsReadBytes => PrimitiveFsOps::read_bytes_payload,
+    PrimitiveFsOpsWriteBytes => PrimitiveFsOps::write_bytes_payload,
     PrimitiveFsOpsCreate => PrimitiveFsOps::create_payload,
     PrimitiveFsOpsRemove => PrimitiveFsOps::remove_payload,
-    PrimitiveFsOpsWriteFileBytes => PrimitiveFsOps::write_file_bytes_payload,
+    PrimitiveFsOpsWriteAppendBytes => PrimitiveFsOps::write_append_bytes_payload,
 }
 
 // #[async_trait]

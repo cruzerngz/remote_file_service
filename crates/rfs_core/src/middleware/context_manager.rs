@@ -1,13 +1,11 @@
 use std::{
     io,
     net::{Ipv4Addr, SocketAddrV4, UdpSocket},
-    thread::panicking,
 };
 
 use crate::{
     middleware::{MiddlewareData, ERROR_HEADER, MIDDLWARE_HEADER},
-    ser_de::{self, ByteViewer},
-    RemotelyInvocable,
+    ser_de, RemotelyInvocable,
 };
 
 use super::InvokeError;

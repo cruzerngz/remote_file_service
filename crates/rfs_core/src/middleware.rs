@@ -2,7 +2,6 @@
 //! objects that transmit the contents of method invocations
 //! over the network.
 //!
-#![allow(unused)]
 
 mod context_manager;
 
@@ -16,7 +15,7 @@ use std::{
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 
-use crate::{ser_de, RemotelyInvocable};
+use crate::ser_de;
 pub use context_manager::ContextManager;
 
 /// Error header send between the dispatcher and context manager
@@ -212,7 +211,7 @@ impl<T> RequestServer for T where T: PayloadHandler {}
 
 /// This macro implements [`PayloadHandler`] with a specified number of routes.
 ///
-/// ```no_run
+/// ```no
 /// /// Server definition (and any fields)
 /// #[derive(Debug)]
 /// pub struct Server;
@@ -247,6 +246,9 @@ macro_rules! payload_handler {
                 $(if payload_bytes.starts_with(
                         <$payload_ty as rfs::RemoteMethodSignature>::remote_method_signature(),
                     ) {
+
+                        log::info!("method: {}", std::str::from_utf8(<$payload_ty as rfs::RemoteMethodSignature>::remote_method_signature()).unwrap());
+
                         let payload =
                             <$payload_ty as rfs::RemotelyInvocable>::process_invocation(payload_bytes)?;
                         let res = self.$method(payload).await;
@@ -263,23 +265,8 @@ macro_rules! payload_handler {
 }
 
 #[cfg(test)]
+#[allow(unused)]
 mod tests {
 
     use super::*;
-
-    macro_rules! ident_manip {
-        ($first: ident, $second: ident) => {};
-    }
-
-    #[derive(Debug)]
-
-    struct S;
-    #[test]
-    fn test_func_macro_stuff() {
-        // dispatcher_handler! {
-        //     S,
-        //     ImmutableFileOpsReadFile => ImmutableFileOps::read_file,
-        //     MutableFileOpsCreateFile => MutableFileOps::create_file
-        // }
-    }
 }

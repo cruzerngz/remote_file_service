@@ -16,7 +16,7 @@ pub(crate) mod remote_method_signature;
 /// - they are concrete types (generics are not allowed)
 /// - they implement serde's `Serialize` and `Deserialize`
 ///
-/// ```no_run
+/// ```no
 /// /// This trait defines a remote interface.
 /// ///
 /// /// In the current implementation, traits do not supported provided methods
