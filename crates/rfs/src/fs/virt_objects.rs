@@ -28,7 +28,26 @@ pub struct VirtFile {
 ///
 /// Attempts to mirror [std::fs::OpenOptions].
 #[derive(Clone, Debug)]
-pub struct VirtOpenOptions {}
+pub struct VirtOpenOptions {
+    ctx: ContextManager,
+    create: bool,
+    read: bool,
+    write: bool,
+    truncate: bool,
+    append: bool,
+}
+
+/// Virtual directory
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct VirtDirEntry;
+
+/// Iterator over [VirtDirEntry] items.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct VirtReadDir;
+
+/// Virtual file metadata
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct VirtMetadata;
 
 impl VirtFile {
     /// Create a new file on the remote.
@@ -63,6 +82,8 @@ impl VirtFile {
     ///
     /// Attempts to mirror [std::fs::File::open]
     pub async fn open<P: AsRef<Path>>(ctx: ContextManager, path: P) -> std::io::Result<Self> {
+        // let res = PrimitiveFsOpsClient
+
         todo!()
     }
 
@@ -86,7 +107,10 @@ impl AsyncRead for VirtFile {
         cx: &mut std::task::Context<'_>,
         buf: &mut [u8],
     ) -> std::task::Poll<std::io::Result<usize>> {
-        let mut read_bytes = Box::pin(PrimitiveFsOpsClient::read(&self.ctx, self.path_as_string()));
+        let mut read_bytes = Box::pin(PrimitiveFsOpsClient::read_bytes(
+            &self.ctx,
+            self.path_as_string(),
+        ));
 
         match read_bytes.poll_unpin(cx) {
             std::task::Poll::Ready(res) => match res {
@@ -126,7 +150,7 @@ impl AsyncWrite for VirtFile {
         cx: &mut std::task::Context<'_>,
         buf: &[u8],
     ) -> std::task::Poll<std::io::Result<usize>> {
-        let mut task = Box::pin(PrimitiveFsOpsClient::write_file_bytes(
+        let mut task = Box::pin(PrimitiveFsOpsClient::write_append_bytes(
             &self.ctx,
             self.path_as_string(),
             buf.to_vec(),
@@ -157,14 +181,90 @@ impl AsyncWrite for VirtFile {
     }
 }
 
-/// Virtual directory
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct VirtDirEntry;
+impl VirtOpenOptions {
+    pub fn new(ctx: ContextManager) -> Self {
+        Self {
+            ctx,
+            // target: todo!(),
+            create: false,
+            read: false,
+            write: false,
+            // open: false,
+            truncate: false,
+            append: false,
+        }
+    }
 
-/// Iterator over [VirtReadDir] entries.
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct VirtReadDir;
+    pub fn read(&mut self, read: bool) -> &mut Self {
+        self.read = read;
 
-/// Virtual file metadata
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct VirtMetadata;
+        self
+    }
+
+    pub fn write(&mut self, write: bool) -> &mut Self {
+        self.write = write;
+
+        self
+    }
+
+    pub fn append(&mut self, append: bool) -> &mut Self {
+        self.append = append;
+
+        self
+    }
+
+    pub fn truncate(&mut self, truncate: bool) -> &mut Self {
+        self.truncate = truncate;
+
+        self
+    }
+
+    pub fn create(&mut self, create: bool) -> &mut Self {
+        self.create = create;
+
+        self
+    }
+
+    pub fn open<P: AsRef<Path>>(&self, path: P) -> io::Result<VirtFile> {
+        match (
+            self.read,
+            self.write,
+            self.create,
+            self.append,
+            self.truncate,
+        ) {
+            // cannot create and read at the same time
+            // (true, _, true, _, _) => {
+            //     return Err(io::Error::new(
+            //         io::ErrorKind::InvalidData,
+            //         "cannot create and ",
+            //     ))
+            // }
+
+            // cannot append and truncate at the same time
+            (_, _, _, true, true) => {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "cannot append and truncate at the same time",
+                ))
+            }
+
+            // cannot truncate without write
+            (_, false, _, _, true) => {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "cannot truncate file without writing",
+                ))
+            }
+
+            // passed checks
+            (r, w, c, a, t) => {
+                todo!()
+            }
+
+            _ => todo!(),
+        }
+
+        todo!()
+    }
+}

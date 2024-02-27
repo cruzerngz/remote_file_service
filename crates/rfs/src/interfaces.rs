@@ -38,12 +38,17 @@ pub trait MutableFileOps {
 #[remote_interface]
 pub trait PrimitiveFsOps {
     /// Read some bytes from a file
-    async fn read(path: String) -> Vec<u8>;
+    async fn read_bytes(path: String) -> Vec<u8>;
 
-    async fn write(path: String) -> bool;
+    /// Write a vector of bytes to a file. The file will be created if it does not exist.
+    ///
+    /// If the file exists, the contents of the file will be replaced by the payload.
+    async fn write_bytes(path: String, contents: Vec<u8>) -> bool;
 
-    /// Writes some bytes into a file path, returning the number of bytes written
-    async fn write_file_bytes(path: String, bytes: Vec<u8>) -> usize;
+    /// Writes some bytes into a file path, returning the number of bytes written.
+    ///
+    /// If the file exists, the contents will be appended to the end.
+    async fn write_append_bytes(path: String, bytes: Vec<u8>) -> usize;
 
     /// Create a file at a specified path. Returns the result of the operation.
     async fn create(path: String) -> bool;
@@ -66,4 +71,56 @@ pub trait SimpleOps {
     ///
     /// This is supposed to simulate an expensive computation.
     async fn compute_fib(fib_num: u8) -> u64;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    macro_rules! check_signature_collision {
+        ($($sig: ty),*,) => {
+            let mut vec = Vec::new();
+
+            $(
+                vec.push(<$sig>::remote_method_signature());
+            )*
+
+            vec.sort();
+
+            for i in 0..vec.len() - 1 {
+                if vec[i].starts_with(&vec[i + 1]) {
+                    panic!(
+                        "signature prefix collision: {} and {}",
+                        std::str::from_utf8(vec[i]).unwrap(),
+                        std::str::from_utf8(vec[i + 1]).unwrap()
+                    );
+                }
+            }
+
+        };
+    }
+
+    /// Test if any of the remote method signatures collide
+    #[test]
+    fn test_method_signature_collision_primitive_fs_ops() {
+        check_signature_collision! {
+            PrimitiveFsOpsReadBytes,
+            PrimitiveFsOpsWriteBytes,
+            PrimitiveFsOpsCreate,
+            PrimitiveFsOpsWriteAppendBytes,
+            PrimitiveFsOpsRemove,
+            PrimitiveFsOpsRename,
+            PrimitiveFsOpsMkdir,
+            PrimitiveFsOpsRmdir,
+            PrimitiveFsOpsReadDir,
+        }
+    }
+
+    #[test]
+    fn test_method_signature_collision_simple_ops() {
+        check_signature_collision! {
+            SimpleOpsSayHello,
+            SimpleOpsComputeFib,
+        }
+    }
 }
