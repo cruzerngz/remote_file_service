@@ -1,8 +1,11 @@
 //! Virtual (remote) object definitions
 #![allow(unused)]
 use std::{
+    fmt::Debug,
+    fs::FileTimes,
     io::{self, Read},
     path::{Path, PathBuf},
+    time::SystemTime,
 };
 
 use futures::{AsyncRead, AsyncWrite, FutureExt};
@@ -37,17 +40,37 @@ pub struct VirtOpenOptions {
     append: bool,
 }
 
-/// Virtual directory
-#[derive(Clone, Debug, Serialize, Deserialize)]
+/// An item inside a directory.
+///
+/// This item can be a file, or a directory.
+#[derive(Clone, Debug)]
 pub struct VirtDirEntry;
 
 /// Iterator over [VirtDirEntry] items.
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct VirtReadDir;
+#[derive(Clone, Debug)]
+pub struct VirtReadDir {
+    entries: Vec<VirtDirEntry>,
+}
 
 /// Virtual file metadata
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct VirtMetadata;
+#[derive(Clone, Debug)]
+pub struct VirtMetadata {
+    /// Last file access time
+    accessed: SystemTime,
+
+    /// Last file mutation time
+    modified: SystemTime,
+
+    permissions: VirtPermissions,
+}
+
+/// File permissions (rwx)
+#[derive(Clone, Debug)]
+pub struct VirtPermissions {
+    read: (bool, bool, bool),
+    write: (bool, bool, bool),
+    execute: (bool, bool, bool),
+}
 
 impl VirtFile {
     /// Create a new file on the remote.
@@ -266,5 +289,33 @@ impl VirtOpenOptions {
         }
 
         todo!()
+    }
+}
+
+impl VirtDirEntry {
+    pub fn path(&self) -> PathBuf {
+        todo!()
+    }
+
+    pub fn metadata(&self) -> VirtMetadata {
+        todo!()
+    }
+
+
+}
+
+mod testing {
+    use std::fs;
+
+    fn test() {
+        let stuff = fs::read_dir("path").unwrap();
+
+        for item in stuff {
+
+
+            let i = item.unwrap();
+
+
+        }
     }
 }

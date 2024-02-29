@@ -53,11 +53,19 @@ pub trait PrimitiveFsOps {
     /// Create a file at a specified path. Returns the result of the operation.
     async fn create(path: String) -> bool;
 
+    /// Remove a file at a specified path. Returns the result of the operation.
     async fn remove(path: String) -> bool;
+
+    /// Rename a file or directory at a specified path. Returns the result of the operation.
     async fn rename(path: String, from: String, to: String) -> bool;
 
+    /// Create a directory.
     async fn mkdir(path: String) -> bool;
+
+    /// Remove a directory.
     async fn rmdir(path: String) -> bool;
+
+    /// Read the contents of a directory
     async fn read_dir(path: String) -> bool;
 }
 
