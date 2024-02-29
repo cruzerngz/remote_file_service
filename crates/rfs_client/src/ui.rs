@@ -1,5 +1,6 @@
 //! User interface module
 //!
+#![allow(unused)]
 
 use std::io::{self, stdout, Stdout};
 

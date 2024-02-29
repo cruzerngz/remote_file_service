@@ -77,6 +77,10 @@ pub trait SimpleOps {
 mod tests {
     use super::*;
 
+    /// Check for signature collisions between every method defined
+    /// in a particular trait.
+    ///
+    /// Takes advantage of the fact that a vector slices is lexicographically sorted
     macro_rules! check_signature_collision {
         ($($sig: ty),*,) => {
             let mut vec = Vec::new();
@@ -87,6 +91,9 @@ mod tests {
 
             vec.sort();
 
+            // let words = vec.iter().map(|bytes| std::str::from_utf8(bytes).unwrap()).collect::<Vec<_>>();
+            // println!("{:#?}", words);
+
             for i in 0..vec.len() - 1 {
                 if vec[i].starts_with(&vec[i + 1]) {
                     panic!(
@@ -96,11 +103,10 @@ mod tests {
                     );
                 }
             }
-
         };
     }
 
-    /// Test if any of the remote method signatures collide
+    /// Signature test for [PrimitiveFsOps]
     #[test]
     fn test_method_signature_collision_primitive_fs_ops() {
         check_signature_collision! {
@@ -116,6 +122,7 @@ mod tests {
         }
     }
 
+    /// Signature test for [SimpleOps]
     #[test]
     fn test_method_signature_collision_simple_ops() {
         check_signature_collision! {

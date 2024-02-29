@@ -12,16 +12,17 @@ use ratatui::{backend::CrosstermBackend, style::Stylize, widgets, Terminal};
 
 #[tokio::main]
 async fn main() -> io::Result<()> {
-    let mut term = ui::init()?;
+    // let mut term = ui::init()?;
 
-    let mut app = ui::App::default();
-    app.run(&mut term).await?;
+    // let mut app = ui::App::default();
+    // app.run(&mut term).await?;
 
-    ui::restore()?;
+    // ui::restore()?;
 
-    Ok(())
+    return Ok(());
 }
 
+#[allow(unused)]
 async fn render_loop<W: Write>(mut term: Terminal<CrosstermBackend<W>>) -> io::Result<()> {
     loop {
         term.draw(|frame| {
