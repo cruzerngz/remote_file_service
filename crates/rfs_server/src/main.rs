@@ -18,7 +18,9 @@ use crate::{args::ServerArgs, server::RfsServer};
 #[tokio::main]
 async fn main() {
     std::env::set_var("RUST_LOG", "DEBUG");
-    pretty_env_logger::init();
+    pretty_env_logger::formatted_timed_builder()
+    .parse_filters(&std::env::var("RUST_LOG").unwrap_or_default())
+    .init();
 
     let args = ServerArgs::parse();
     let server = RfsServer::from_path(args.path);
