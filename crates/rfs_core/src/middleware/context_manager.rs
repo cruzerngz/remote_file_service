@@ -18,8 +18,9 @@ use super::InvokeError;
 /// Integrity checks, validation, etc. are performed here.
 #[derive(Debug, Clone, Copy)]
 pub struct ContextManager {
-    /// The target address and port
+    /// The client's IP
     source_ip: Ipv4Addr,
+    /// The server's IP
     target_ip: SocketAddrV4,
 }
 
@@ -33,7 +34,9 @@ impl ContextManager {
             target_ip: target,
         };
 
-        let sock = s.generate_socket()?;
+        let sock = s.generate_socket();
+        println!("{:?}", sock);
+        let sock = sock?;
 
         log::debug!("establishing initial conn with remote...");
         sock.connect(s.target_ip)?;
