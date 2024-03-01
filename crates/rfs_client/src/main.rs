@@ -1,17 +1,32 @@
 mod args;
 mod ui;
 
-use std::io::{self, Write};
+use std::{
+    io::{self, Write},
+    net::SocketAddrV4,
+};
 
+use args::ClientArgs;
+use clap::Parser;
 // use clap::Parser;
 use crossterm::event::{self, KeyCode, KeyEventKind};
 // use futures::{AsyncReadExt, AsyncWriteExt};
 use ratatui::{backend::CrosstermBackend, style::Stylize, widgets, Terminal};
+use rfs::middleware::ContextManager;
 // use rfs_core::middleware::ContextManager;
 // use rfs::{interfaces::*, middleware::ContextManager};
 
 #[tokio::main]
 async fn main() -> io::Result<()> {
+    let args = ClientArgs::parse();
+    let manager = ContextManager::new(
+        args.listen_address,
+        SocketAddrV4::new(args.target, args.port),
+    );
+
+
+
+
     // let mut term = ui::init()?;
 
     // let mut app = ui::App::default();

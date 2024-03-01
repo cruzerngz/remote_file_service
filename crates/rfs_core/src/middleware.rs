@@ -6,7 +6,10 @@
 mod context_manager;
 mod dispatch;
 
-use std::fmt::Debug;
+use std::{
+    fmt::Debug,
+    net::{Ipv4Addr, UdpSocket},
+};
 // use tokio::net::UdpSocket;
 
 use async_trait::async_trait;
@@ -91,6 +94,27 @@ impl std::fmt::Display for InvokeError {
 #[async_trait]
 pub trait PayloadHandler {
     async fn handle_payload(&mut self, payload_bytes: &[u8]) -> Result<Vec<u8>, InvokeError>;
+}
+
+/// Route and handle the bytes of a remote callback.
+///
+/// A socket is passed to into the callback method. This is used by the callback method when
+/// sending the result of the callback to the client.
+#[async_trait]
+pub trait CallbackHandler {
+    async fn handle_callback(
+        &mut self,
+        callback_bytes: &[u8],
+        sock: UdpSocket,
+    ) -> Result<Vec<u8>, InvokeError>;
+}
+
+/// This trait is used by the dispatcher to determine the address that the server has bound itself to.
+///
+/// It
+pub trait Addressable {
+    /// Returns the address the server is bound to. The port number cannot be returned.
+    fn bind_address(&self) -> Ipv4Addr;
 }
 
 /// Serve requests by binding to a port.

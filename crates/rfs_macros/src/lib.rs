@@ -4,7 +4,9 @@ use quote::quote;
 use syn::{punctuated::Punctuated, ItemTrait};
 
 mod client_builder;
+mod extend_remote_callback;
 mod extend_remote_interface;
+mod remote_callback;
 mod remote_message;
 pub(crate) mod remote_method_signature;
 
@@ -53,7 +55,7 @@ pub fn remote_interface(
         items,
     } = syn::parse_macro_input!(item);
 
-    let methods = items.iter().filter_map(|item| {
+    let trait_methods = items.iter().filter_map(|item| {
         if let syn::TraitItem::Fn(f) = item {
             Some(f)
         } else {
@@ -61,7 +63,7 @@ pub fn remote_interface(
         }
     });
 
-    let (derived_enum_idents_sigs, derived_enums): (Vec<_>, Vec<_>) = methods
+    let (derived_enum_idents_sigs, derived_enums): (Vec<_>, Vec<_>) = trait_methods
         .clone()
         .map(|m| {
             let (enum_ident, tokens) = remote_message::derive_enum(ident.clone(), m.to_owned());
@@ -94,12 +96,68 @@ pub fn remote_interface(
 
     // generate client struct
     let derived_client_impl =
-        client_builder::derive_client(ident.clone(), methods.map(|m| m.to_owned()).collect());
+        client_builder::derive_client(ident.clone(), trait_methods.map(|m| m.to_owned()).collect());
 
     [trait_def, derived_enums, derived_client_impl]
         .into_iter()
         .collect::<proc_macro2::TokenStream>()
         .into()
+}
+
+/// Create a remote callback.
+///
+/// NOT used at the moment
+#[proc_macro_attribute]
+pub fn remote_callback(
+    attr: proc_macro::TokenStream,
+    item: proc_macro::TokenStream,
+) -> proc_macro::TokenStream {
+    let item_cloned = proc_macro2::TokenStream::from(item.clone());
+
+    let ItemTrait {
+        attrs,
+        vis,
+        unsafety,
+        auto_token,
+        restriction,
+        trait_token,
+        ident,
+        generics,
+        colon_token,
+        supertraits,
+        brace_token,
+        items,
+    } = syn::parse_macro_input!(item);
+
+    let trait_methods = items.iter().filter_map(|item| {
+        if let syn::TraitItem::Fn(f) = item {
+            Some(f)
+        } else {
+            None
+        }
+    });
+
+    let (derived_enum_idents_sigs, derived_enums): (Vec<_>, Vec<_>) = trait_methods
+        .clone()
+        .map(|method| {
+            let (enum_ident, tokens) =
+                remote_callback::derive_enum(ident.clone(), method.to_owned());
+
+            let remote_sig_derive = remote_method_signature::derive(
+                enum_ident.clone(),
+                &format!("{}::{}", ident, method.sig.ident),
+            );
+
+            (
+                (enum_ident, method.sig.to_owned()),
+                [tokens, remote_sig_derive]
+                    .into_iter()
+                    .collect::<proc_macro2::TokenStream>(),
+            )
+        })
+        .unzip();
+
+    todo!()
 }
 
 /// Converts `camel_case` to `CamelCase`
@@ -117,4 +175,22 @@ fn camel_case_to_pascal_case(input: &str) -> String {
             chars.iter().collect::<String>()
         })
         .collect::<String>()
+}
+
+/// Convert a single pattern `name: bool` into it's equivalent struct field.
+fn pat_to_struct_field(pat: &syn::PatType) -> syn::Field {
+    let ident = if let syn::Pat::Ident(i) = *pat.pat.clone() {
+        i.ident
+    } else {
+        unimplemented!("function signatures only contain identifiers")
+    };
+
+    syn::Field {
+        attrs: Default::default(),
+        vis: syn::Visibility::Inherited,
+        mutability: syn::FieldMutability::None,
+        ident: Some(ident),
+        colon_token: Default::default(),
+        ty: *pat.ty.clone(),
+    }
 }

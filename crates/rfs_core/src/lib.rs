@@ -81,7 +81,7 @@ trait RemoteCall {
 /// to their respective methods.
 ///
 /// This trait is automatically derived from any interface that has the
-/// [`remote_interface`] proc-macro.
+/// [`remote_interface`] or [`remote_callback`] proc-macro.
 pub trait RemoteMethodSignature {
     /// Returns the method signature of a remote interface method.
     ///

@@ -1,16 +1,14 @@
-//! This module derives a remote message enum for each remote method.
-//! The enum contains 2 variants: the request and response.
-//!
-//! The request variant contains the function args, and the response contains the return value.
+//! Module for deriving a remote callback enum type.
 
-use proc_macro2::{extra::DelimSpan, Span};
+use proc_macro2::Span;
 use quote::quote;
 use syn::{punctuated::Punctuated, token::Comma, Field};
 
 use crate::{camel_case_to_pascal_case, pat_to_struct_field};
 
-pub(crate) const VARIANT_REQUEST: &str = "Request";
-pub(crate) const VARIANT_RESPONSE: &str = "Response";
+pub(crate) const VARIANT_REGISTER: &str = "Register";
+pub(crate) const VARIANT_REGISTER_ACK: &str = "Acknowledge";
+pub(crate) const VARIANT_CALLBACK: &str = "Callback";
 
 /// Construct the enum.
 ///
@@ -32,7 +30,7 @@ pub fn derive_enum(
     let inputs = trait_method.sig.inputs;
     let ret_val = trait_method.sig.output;
 
-    let request_variant_fields = inputs
+    let reg_variant_fields = inputs
         .iter()
         .map(|arg| match arg {
             syn::FnArg::Receiver(rv) => unimplemented!("trait method must not have a receiver"),
@@ -41,7 +39,7 @@ pub fn derive_enum(
         })
         .collect::<Punctuated<Field, Comma>>();
 
-    let resp_variant_type = match ret_val {
+    let callback_variant_type = match ret_val {
         // unit type
         syn::ReturnType::Default => syn::Type::Tuple(syn::TypeTuple {
             paren_token: syn::token::Paren::default(),
@@ -51,22 +49,22 @@ pub fn derive_enum(
         syn::ReturnType::Type(_, ty) => *ty,
     };
 
-    let request_variant = syn::Variant {
+    let register_variant = syn::Variant {
         attrs: Default::default(),
-        ident: syn::Ident::new(VARIANT_REQUEST, Span::call_site()),
+        ident: syn::Ident::new(VARIANT_REGISTER, Span::call_site()),
         fields: syn::Fields::Named(syn::FieldsNamed {
             brace_token: Default::default(),
-            named: request_variant_fields,
+            named: reg_variant_fields,
         }),
         discriminant: None,
     };
 
-    let response_variant = syn::Variant {
+    let callback_variant = syn::Variant {
         attrs: Default::default(),
-        ident: syn::Ident::new(VARIANT_RESPONSE, Span::call_site()),
+        ident: syn::Ident::new(VARIANT_CALLBACK, Span::call_site()),
         fields: syn::Fields::Unnamed(syn::FieldsUnnamed {
             paren_token: Default::default(),
-            unnamed: [resp_variant_type]
+            unnamed: [callback_variant_type]
                 .iter()
                 .map(|ty| Field {
                     attrs: Default::default(),
@@ -86,13 +84,14 @@ pub fn derive_enum(
     (
         cloned_ident,
         quote! {
-            #[doc = "Method call payload"]
+            #[doc = "Callback data payload"]
             #[doc = ""]
             #[doc = concat!("This enum is automatically generated from [`", stringify!(#trait_name), "`]")]
             #[derive(Debug, serde::Serialize, serde::Deserialize)]
             pub enum #modified_method_ident {
-                #request_variant,
-                #response_variant
+                #register_variant,
+                #VARIANT_REGISTER_ACK,
+                #callback_variant,
             }
         },
     )
