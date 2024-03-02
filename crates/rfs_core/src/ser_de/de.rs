@@ -251,6 +251,8 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut RfsDeserializer<'de> {
     where
         V: de::Visitor<'de>,
     {
+        validate_next_byte! {self.input, consts::PREFIX_BYTES => Self::Error::PrefixNotMatched(consts::PREFIX_BYTES)}
+
         require_bytes! {self.input, 8, err::Error::OutOfBytes};
         let len = self.input.pop_size();
 

@@ -298,6 +298,7 @@ mod tests {
     struct ContiguousBytes {
         s: String,
         c: char,
+        #[serde(with = "serde_bytes")]
         b: Vec<u8>,
         v_nums: Vec<u32>,
     }
@@ -313,6 +314,12 @@ mod tests {
         newtype_struct: NewType,
         tup: (E, E, E, E, E),
         map: HashMap<String, u64>,
+    }
+
+    #[derive(Debug, Serialize, Deserialize, PartialEq)]
+    struct ByteVec {
+        #[serde(with = "serde_bytes")]
+        inner: Vec<u8>,
     }
 
     impl RemoteMethodSignature for AllTheThings {
@@ -400,6 +407,15 @@ mod tests {
         );
         ser_de_loop(&tup_enum);
         ser_de_pack_loop(&tup_enum);
+    }
+
+    /// Tests ser_de of byte vectors, attributed with the `serde_bytes` lib
+    #[test]
+    fn test_ser_de_byte_vec() {
+        let preset_vec = (0..127_u8).into_iter().map(|i| i).collect::<Vec<_>>();
+        let byte_vec = ByteVec { inner: preset_vec };
+
+        ser_de_loop(&byte_vec);
     }
 
     /// Testing ser_de of structs

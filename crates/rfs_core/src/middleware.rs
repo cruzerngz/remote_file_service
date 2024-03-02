@@ -61,9 +61,11 @@ pub enum MiddlewareData {
     Ping,
 
     /// Remote method invocation payload, request or response
+    #[serde(with = "serde_bytes")]
     Payload(Vec<u8>),
 
     /// Remote callback payload
+    #[serde(with = "serde_bytes")]
     Callback(Vec<u8>),
 
     /// Err messages go here
