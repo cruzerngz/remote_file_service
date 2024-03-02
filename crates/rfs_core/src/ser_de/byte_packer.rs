@@ -43,15 +43,19 @@ pub fn pack_bytes(input: &[u8]) -> Vec<u8> {
             // skip, do not pack
             0..=3 => packed.extend(viewer.next_bytes(num_zeroes, true)),
             // proceed
-            4..=127 => {
+            4..=255 => {
                 // create and push the marker
                 let marker = [BYTE_COUNT_DELIM, num_zeroes as u8, BYTE_COUNT_DELIM];
                 packed.extend(marker);
                 viewer.advance(num_zeroes).unwrap();
             }
-            _ => unimplemented!(
-                "there is currently no logic for handling more than 127 continuous zero bytes"
-            ),
+            // for sequences larger than u8::MAX
+            other => {
+                println!("sequence len: {}", other);
+                let marker = [BYTE_COUNT_DELIM, u8::MAX as u8, BYTE_COUNT_DELIM];
+                packed.extend(marker);
+                viewer.advance(u8::MAX as usize).unwrap();
+            }
         }
 
         // println!("current vec: {:?}", &packed);
@@ -119,6 +123,20 @@ mod tests {
         let unpacked = unpack_bytes(&packed);
 
         println!("{:?}", unpacked);
+
+        assert_eq!(bytes, unpacked);
+    }
+
+    /// Test the packer on 0-sequences greater than `u8::MAX`
+    #[test]
+    fn test_pack_arbitrary_len_bytes() {
+        let bytes = (0..1000).into_iter().map(|_| 0_u8).collect::<Vec<_>>();
+
+        let packed = pack_bytes(&bytes);
+
+        println!("packed contents: {:?}", packed);
+
+        let unpacked = unpack_bytes(&packed);
 
         assert_eq!(bytes, unpacked);
     }
