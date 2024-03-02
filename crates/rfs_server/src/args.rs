@@ -7,18 +7,26 @@ use std::{
 
 use clap::Parser;
 
-/// Remote file service init arguments
+/// Remote file service server arguments
 #[derive(Parser)]
 pub(crate) struct ServerArgs {
     /// The IPv4 address for the server to bind to.
+    #[clap(short, long)]
     #[clap(default_value_t = Ipv4Addr::LOCALHOST)]
     pub address: Ipv4Addr,
 
     /// The port number for the server to listen on.
+    #[clap(short, long)]
     #[clap(default_value_t = rfs::defaults::DEFAULT_PORT)]
     pub port: u16,
 
     /// The starting directory the server will attach itself to.
+    #[clap(short, long)]
     #[clap(default_value = PathBuf::from(std::env::current_dir().unwrap()).into_os_string())]
-    pub path: PathBuf,
+    pub start_dir: PathBuf,
+
+    /// The timeout duration
+    #[clap(short, long)]
+    #[clap(default_value = rfs::defaults::DEFAULT_TIMEOUT)]
+    pub request_timeout: humantime::Duration,
 }

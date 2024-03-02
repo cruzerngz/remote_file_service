@@ -23,7 +23,7 @@ async fn main() {
         .init();
 
     let args = ServerArgs::parse();
-    let server = RfsServer::from_path(args.path);
+    let server = RfsServer::from_path(args.start_dir);
     let addr = SocketAddrV4::new(args.address, args.port);
 
     log::info!("server listening on {}", addr);

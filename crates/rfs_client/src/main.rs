@@ -12,20 +12,29 @@ use clap::Parser;
 use crossterm::event::{self, KeyCode, KeyEventKind};
 // use futures::{AsyncReadExt, AsyncWriteExt};
 use ratatui::{backend::CrosstermBackend, style::Stylize, widgets, Terminal};
-use rfs::middleware::ContextManager;
+use rfs::{interfaces::SimpleOpsClient, middleware::ContextManager};
 // use rfs_core::middleware::ContextManager;
 // use rfs::{interfaces::*, middleware::ContextManager};
 
 #[tokio::main]
 async fn main() -> io::Result<()> {
+    pretty_env_logger::formatted_timed_builder()
+        .parse_filters("DEBUG")
+        .init();
+
     let args = ClientArgs::parse();
     let manager = ContextManager::new(
         args.listen_address,
         SocketAddrV4::new(args.target, args.port),
-    );
+        args.request_timeout.into(),
+        args.num_retries,
+    )
+    .await
+    .unwrap();
 
-
-
+    let x = SimpleOpsClient::say_hello(&manager, "new configurtation".to_string())
+        .await
+        .unwrap();
 
     // let mut term = ui::init()?;
 
