@@ -1,11 +1,13 @@
 //! Dispatcher side implementations.
 //!
 //! This module contains implementations of various dispatchers.
+#![allow(unused)]
 
 use crate::middleware::{MiddlewareData, ERROR_HEADER, MIDDLWARE_HEADER};
-use crate::ser_de;
+use crate::ser_de::{self, ser};
 
 use super::PayloadHandler;
+use std::collections::btree_map;
 use std::fmt::Debug;
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::io;
@@ -65,40 +67,39 @@ where
                     }
 
                     log::debug!("packet has stuff");
+                    // let header = buf.iter().take(20).map(|num| *num).collect::<Vec<_>>();
+                    // log::debug!("packet header {:?}", std::str::from_utf8(&header));
+
                     let copy = &buf[..bytes];
+                    log::debug!("packet: {:?}", copy);
 
-                    if copy.starts_with(MIDDLWARE_HEADER) {
-                        self.handle_middleware_data(copy, addr)
-                            .await
-                            .expect("failed to send back to source");
-                        continue;
-                    }
+                    let data: MiddlewareData = super::deserialize_primary(&buf).unwrap();
 
-                    // to be spawned as a separate task
-                    let bytes = match self.handler.handle_payload(copy).await {
-                        Ok(res) => {
-                            log::debug!("payload header: {:?}", &res[..20]);
-
-                            self.socket
-                                .send_to(&res, addr)
-                                .await
-                                .expect("failed to send back to source")
+                    let middlware_response = match data {
+                        MiddlewareData::Ping => handle_ping().await,
+                        MiddlewareData::Payload(payload) => {
+                            handle_payload(&mut self.handler, &payload).await
                         }
-                        Err(e) => {
-                            log::error!("Invoke error: {:?}", e);
+                        MiddlewareData::Callback(call) => handle_callback(&call).await,
 
-                            let mut data = ERROR_HEADER.to_vec();
-                            data.extend(ser_de::serialize_packed(&e).unwrap());
-
-                            self.socket
-                                .send_to(&data, addr)
-                                .await
-                                .expect("failed to send error back to source")
-                        }
+                        // errors are client-side only
+                        MiddlewareData::Error(_) => unimplemented!(
+                            "dispatcher should not be receiving errors from a client"
+                        ),
                     };
 
-                    log::debug!("sent {} bytes to {}", bytes, addr);
+                    let serialized_response =
+                        super::serialize_primary(&middlware_response).unwrap();
+
+                    let sent_bytes = self
+                        .socket
+                        .send_to(&serialized_response, addr)
+                        .await
+                        .expect("failed to send back to source");
+
+                    log::debug!("sent {} bytes to {}", sent_bytes, addr);
                 }
+
                 // log the error
                 Err(e) => {
                     log::error!("Receive error: {}", e);
@@ -107,29 +108,45 @@ where
         }
     }
 
-    /// Handle inter-middleware comms
-    async fn handle_middleware_data(
-        &self,
-        middleware_data: &[u8],
-        reply_addr: SocketAddr,
-    ) -> io::Result<()> {
-        let data: MiddlewareData =
-            ser_de::deserialize_packed_with_header(&middleware_data, MIDDLWARE_HEADER).unwrap();
+    // /// Handle inter-middleware comms
+    // async fn handle_middleware_data(
+    //     &self,
+    //     middleware_data: &[u8],
+    //     reply_addr: SocketAddr,
+    // ) -> io::Result<()> {
+    //     let data: MiddlewareData =
+    //         ser_de::deserialize_packed_with_header(&middleware_data, MIDDLWARE_HEADER).unwrap();
 
-        log::debug!("middleware: {:?}", data);
+    //     log::debug!("middleware: {:?}", data);
 
-        let res = match data {
-            MiddlewareData::Ping => MiddlewareData::Ping,
-        };
+    //     let res = match data {
+    //         MiddlewareData::Ping => MiddlewareData::Ping,
+    //         _ => todo!(),
+    //     };
 
-        self.socket
-            .send_to(
-                &ser_de::serialize_packed_with_header(&res, MIDDLWARE_HEADER).unwrap(),
-                reply_addr,
-            )
-            .await?;
-        Ok(())
+    //     self.socket
+    //         .send_to(
+    //             &ser_de::serialize_packed_with_header(&res, MIDDLWARE_HEADER).unwrap(),
+    //             reply_addr,
+    //         )
+    //         .await?;
+    //     Ok(())
+    // }
+}
+
+async fn handle_ping() -> MiddlewareData {
+    MiddlewareData::Ping
+}
+
+async fn handle_payload<H: PayloadHandler>(handler: &mut H, payload: &[u8]) -> MiddlewareData {
+    match handler.handle_payload(payload).await {
+        Ok(res) => MiddlewareData::Payload(res),
+        Err(e) => MiddlewareData::Error(e),
     }
+}
+
+async fn handle_callback(call: &[u8]) -> MiddlewareData {
+    todo!()
 }
 
 /// Hash an object and derive a boolean from it in a determinstic way
@@ -235,6 +252,7 @@ where
 
         let res = match data {
             MiddlewareData::Ping => MiddlewareData::Ping,
+            _ => todo!(),
         };
 
         self.socket

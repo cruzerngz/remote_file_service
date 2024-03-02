@@ -8,8 +8,8 @@ use async_trait::async_trait;
 use middleware::InvokeError;
 pub use rfs_macros::*;
 pub use ser_de::{
-    deserialize, deserialize_packed, deserialize_packed_with_header, serialize, serialize_packed,
-    serialize_packed_with_header,
+    deserialize, deserialize_packed, deserialize_packed_with_header, deserialize_with_header,
+    serialize, serialize_packed, serialize_packed_with_header, serialize_with_header,
 };
 
 /// A type that is remotely invocable.
@@ -23,7 +23,7 @@ pub trait RemotelyInvocable:
     ///
     /// This method is automatically implemented and should not be overidden.
     fn invoke_bytes(&self) -> Vec<u8> {
-        crate::serialize_packed_with_header(self, Self::remote_method_signature())
+        crate::serialize_with_header(self, Self::remote_method_signature())
             .expect("serialization should not fail")
     }
 
@@ -41,7 +41,7 @@ pub trait RemotelyInvocable:
             false => return Err(InvokeError::SignatureNotMatched),
         }
 
-        crate::deserialize_packed_with_header(bytes, Self::remote_method_signature())
+        crate::deserialize_with_header(bytes, Self::remote_method_signature())
             .map_err(|_| InvokeError::DeserializationFailed)
     }
 }

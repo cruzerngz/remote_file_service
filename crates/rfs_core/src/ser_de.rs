@@ -27,6 +27,25 @@ where
     T::deserialize(&mut deserializer)
 }
 
+/// Serialize a data structure with a header appended to the start
+pub fn serialize_with_header<T: serde::Serialize>(
+    value: &T,
+    header: &[u8],
+) -> SerDeResult<Vec<u8>> {
+    Ok([header, &serialize(value)?].concat())
+}
+
+/// Match headers and then deserialize a sequence of bytes
+pub fn deserialize_with_header<T>(bytes: &[u8], header: &[u8]) -> SerDeResult<T>
+where
+    T: for<'a> serde::Deserialize<'a>,
+{
+    match bytes.starts_with(header) {
+        true => deserialize(&bytes[header.len()..]),
+        false => Err(err::Error::MalformedData),
+    }
+}
+
 /// Serialize a data structure and pack the bits.
 ///
 /// The packing process must not fail.

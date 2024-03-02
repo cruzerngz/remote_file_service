@@ -1,5 +1,5 @@
 //! Virtual file module
-//!
+#![allow(unused)]
 
 mod virt_objects;
 

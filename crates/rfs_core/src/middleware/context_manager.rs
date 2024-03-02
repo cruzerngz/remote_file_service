@@ -1,10 +1,7 @@
 //! The client-side middleware module
 
-// TODO: refac all UDP to tokio's UDP
-// we're going to use the select! macro baby
-
 use crate::{
-    middleware::{MiddlewareData, ERROR_HEADER, MIDDLWARE_HEADER},
+    middleware::{MiddlewareData, MIDDLWARE_HEADER},
     ser_de, RemotelyInvocable,
 };
 use std::{
@@ -28,6 +25,12 @@ pub struct ContextManager {
     source_ip: Ipv4Addr,
     /// The server's IP
     target_ip: SocketAddrV4,
+
+    /// Request timeout
+    timeout: Duration,
+
+    /// Number of retries
+    retries: u8,
 }
 
 impl ContextManager {
@@ -37,10 +40,17 @@ impl ContextManager {
     /// Create a new context manager, along with a target IP and port.
     ///
     /// TODO: bind and wait for server to become online.
-    pub async fn new(source: Ipv4Addr, target: SocketAddrV4) -> std::io::Result<Self> {
+    pub async fn new(
+        source: Ipv4Addr,
+        target: SocketAddrV4,
+        timeout: Duration,
+        retries: u8,
+    ) -> std::io::Result<Self> {
         let s = Self {
             source_ip: source,
             target_ip: target,
+            timeout,
+            retries,
         };
 
         let sock = s.generate_socket().await?;
@@ -53,7 +63,7 @@ impl ContextManager {
         let payload = MiddlewareData::Ping;
 
         sock.send_to(
-            &ser_de::serialize_packed_with_header(&payload, MIDDLWARE_HEADER).unwrap(),
+            &super::serialize_primary(&MiddlewareData::Ping).unwrap(),
             s.target_ip,
         )
         .await?;
@@ -61,8 +71,7 @@ impl ContextManager {
         let mut buf = [0; 1000];
         let recv_bytes = sock.recv(&mut buf).await.unwrap();
 
-        let revc_data: MiddlewareData =
-            ser_de::deserialize_packed_with_header(&buf[..recv_bytes], MIDDLWARE_HEADER).unwrap();
+        let revc_data: MiddlewareData = super::deserialize_primary(&buf[..recv_bytes]).unwrap();
 
         match revc_data == payload {
             true => {
@@ -81,7 +90,7 @@ impl ContextManager {
     /// Send an invocation over the network, and returns the result.
     pub async fn invoke<P: RemotelyInvocable>(&self, payload: P) -> Result<P, InvokeError> {
         // send to server and wait for a reply
-        let data = &payload.invoke_bytes();
+        let data = payload.invoke_bytes();
 
         // for now, bind and connect on every invocation
 
@@ -89,27 +98,29 @@ impl ContextManager {
 
         log::debug!("connected to {}", self.target_ip);
 
+        let middleware_payload = MiddlewareData::Payload(data);
+        let serialized_payload = super::serialize_primary(&middleware_payload).unwrap();
+
         let size = source
-            .send(&data)
+            .send(&serialized_payload)
             .await
             .map_err(|_| InvokeError::DataTransmissionFailed)?;
 
         log::debug!("request sent: {} bytes", size);
 
         let mut recv_buf = [0; 10_000];
-        source
+        let num_bytes = source
             .recv(&mut recv_buf)
             .await
             .map_err(|_| InvokeError::DataTransmissionFailed)?;
 
-        // check for an error header, and process the remote error
-        if recv_buf.starts_with(ERROR_HEADER) {
-            let error: InvokeError = ser_de::deserialize_packed(&recv_buf[ERROR_HEADER.len()..])
-                .expect("failed to deserialize error packet");
+        let middleware_resp: MiddlewareData =
+            super::deserialize_primary(&recv_buf[..num_bytes]).unwrap();
 
-            Err(error)
-        } else {
-            P::process_invocation(&recv_buf)
+        match middleware_resp {
+            MiddlewareData::Payload(p) => P::process_invocation(&p),
+            MiddlewareData::Error(e) => Err(e),
+            _ => unimplemented!(),
         }
     }
 
