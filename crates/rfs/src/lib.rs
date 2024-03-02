@@ -2,6 +2,7 @@
 
 pub mod fs;
 pub mod interfaces;
+mod callback;
 
 pub use rfs_core::{
     middleware, payload_handler, RemoteMethodSignature, RemoteRequest, RemotelyInvocable,

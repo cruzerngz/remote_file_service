@@ -81,6 +81,15 @@ pub trait SimpleOps {
     async fn compute_fib(fib_num: u8) -> u64;
 }
 
+/// Methods that register a callback are defined here.
+///
+/// These methods should not be invoked directly!
+#[remote_interface]
+pub trait CallbackOps {
+    async fn register_file_update(path: String) -> bool;
+
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

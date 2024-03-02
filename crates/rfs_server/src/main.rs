@@ -19,8 +19,8 @@ use crate::{args::ServerArgs, server::RfsServer};
 async fn main() {
     std::env::set_var("RUST_LOG", "DEBUG");
     pretty_env_logger::formatted_timed_builder()
-    .parse_filters(&std::env::var("RUST_LOG").unwrap_or_default())
-    .init();
+        .parse_filters(&std::env::var("RUST_LOG").unwrap_or_default())
+        .init();
 
     let args = ServerArgs::parse();
     let server = RfsServer::from_path(args.path);
@@ -28,7 +28,7 @@ async fn main() {
 
     log::info!("server listening on {}", addr);
 
-    let mut dispatcher = Dispatcher::new(addr, server);
+    let mut dispatcher = Dispatcher::new(addr, server).await;
 
     dispatcher.dispatch().await;
 

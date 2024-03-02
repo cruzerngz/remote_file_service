@@ -9,7 +9,8 @@ use super::PayloadHandler;
 use std::fmt::Debug;
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::io;
-use std::net::{SocketAddr, SocketAddrV4, UdpSocket};
+use std::net::{SocketAddr, SocketAddrV4};
+use tokio::net::UdpSocket;
 
 const BYTE_BUF_SIZE: usize = 65535;
 
@@ -39,8 +40,10 @@ where
     H: Debug + PayloadHandler,
 {
     /// Create a new dispatcher from the handler and a listening IP
-    pub fn new(addr: SocketAddrV4, handler: H) -> Self {
-        let socket = UdpSocket::bind(addr).expect("failed to bind to specified address");
+    pub async fn new(addr: SocketAddrV4, handler: H) -> Self {
+        let socket = UdpSocket::bind(addr)
+            .await
+            .expect("failed to bind to specified address");
 
         Self { socket, handler }
     }
@@ -52,7 +55,7 @@ where
         loop {
             // buf.clear();
 
-            match self.socket.recv_from(&mut buf) {
+            match self.socket.recv_from(&mut buf).await {
                 Ok((bytes, addr)) => {
                     log::debug!("received {} bytes from {}", bytes, addr);
 
@@ -66,6 +69,7 @@ where
 
                     if copy.starts_with(MIDDLWARE_HEADER) {
                         self.handle_middleware_data(copy, addr)
+                            .await
                             .expect("failed to send back to source");
                         continue;
                     }
@@ -77,6 +81,7 @@ where
 
                             self.socket
                                 .send_to(&res, addr)
+                                .await
                                 .expect("failed to send back to source")
                         }
                         Err(e) => {
@@ -87,6 +92,7 @@ where
 
                             self.socket
                                 .send_to(&data, addr)
+                                .await
                                 .expect("failed to send error back to source")
                         }
                     };
@@ -102,7 +108,7 @@ where
     }
 
     /// Handle inter-middleware comms
-    fn handle_middleware_data(
+    async fn handle_middleware_data(
         &self,
         middleware_data: &[u8],
         reply_addr: SocketAddr,
@@ -116,10 +122,12 @@ where
             MiddlewareData::Ping => MiddlewareData::Ping,
         };
 
-        self.socket.send_to(
-            &ser_de::serialize_packed_with_header(&res, MIDDLWARE_HEADER).unwrap(),
-            reply_addr,
-        )?;
+        self.socket
+            .send_to(
+                &ser_de::serialize_packed_with_header(&res, MIDDLWARE_HEADER).unwrap(),
+                reply_addr,
+            )
+            .await?;
         Ok(())
     }
 }
@@ -145,8 +153,10 @@ where
     H: Debug + PayloadHandler,
 {
     /// Create a new dispatcher from the handler and a listening IP
-    pub fn new(addr: SocketAddrV4, handler: H) -> Self {
-        let socket = UdpSocket::bind(addr).expect("failed to bind to specified address");
+    pub async fn new(addr: SocketAddrV4, handler: H) -> Self {
+        let socket = UdpSocket::bind(addr)
+            .await
+            .expect("failed to bind to specified address");
 
         Self { socket, handler }
     }
@@ -160,7 +170,7 @@ where
                 continue;
             }
 
-            match self.socket.recv_from(&mut buf) {
+            match self.socket.recv_from(&mut buf).await {
                 Ok((bytes, addr)) => {
                     log::debug!("received {} bytes from {}", bytes, addr);
 
@@ -174,6 +184,7 @@ where
 
                     if copy.starts_with(MIDDLWARE_HEADER) {
                         self.handle_middleware_data(copy, addr)
+                            .await
                             .expect("failed to send back to source");
                         continue;
                     }
@@ -185,6 +196,7 @@ where
 
                             self.socket
                                 .send_to(&res, addr)
+                                .await
                                 .expect("failed to send back to source")
                         }
                         Err(e) => {
@@ -195,6 +207,7 @@ where
 
                             self.socket
                                 .send_to(&data, addr)
+                                .await
                                 .expect("failed to send error back to source")
                         }
                     };
@@ -210,7 +223,7 @@ where
     }
 
     /// Handle inter-middleware comms
-    fn handle_middleware_data(
+    async fn handle_middleware_data(
         &self,
         middleware_data: &[u8],
         reply_addr: SocketAddr,
@@ -224,10 +237,12 @@ where
             MiddlewareData::Ping => MiddlewareData::Ping,
         };
 
-        self.socket.send_to(
-            &ser_de::serialize_packed_with_header(&res, MIDDLWARE_HEADER).unwrap(),
-            reply_addr,
-        )?;
+        self.socket
+            .send_to(
+                &ser_de::serialize_packed_with_header(&res, MIDDLWARE_HEADER).unwrap(),
+                reply_addr,
+            )
+            .await?;
         Ok(())
     }
 }
