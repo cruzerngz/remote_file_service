@@ -16,3 +16,4 @@ tokio = { workspace = true }
 futures = { workspace = true }
 log = { workspace = true }
 pretty_env_logger = { workspace = true }
+humantime = { workspace = true }
