@@ -50,8 +50,7 @@ pub fn pack_bytes(input: &[u8]) -> Vec<u8> {
                 viewer.advance(num_zeroes).unwrap();
             }
             // for sequences larger than u8::MAX
-            other => {
-                println!("sequence len: {}", other);
+            _ => {
                 let marker = [BYTE_COUNT_DELIM, u8::MAX as u8, BYTE_COUNT_DELIM];
                 packed.extend(marker);
                 viewer.advance(u8::MAX as usize).unwrap();
