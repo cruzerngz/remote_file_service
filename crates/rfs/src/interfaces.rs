@@ -87,7 +87,6 @@ pub trait SimpleOps {
 #[remote_interface]
 pub trait CallbackOps {
     async fn register_file_update(path: String) -> bool;
-
 }
 
 #[cfg(test)]

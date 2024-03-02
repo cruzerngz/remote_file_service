@@ -300,8 +300,6 @@ impl VirtDirEntry {
     pub fn metadata(&self) -> VirtMetadata {
         todo!()
     }
-
-
 }
 
 mod testing {
@@ -311,11 +309,7 @@ mod testing {
         let stuff = fs::read_dir("path").unwrap();
 
         for item in stuff {
-
-
             let i = item.unwrap();
-
-
         }
     }
 }
