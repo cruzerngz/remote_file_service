@@ -3,7 +3,9 @@
 //! This module contains implementations of various dispatchers.
 #![allow(unused)]
 
-use crate::middleware::{MiddlewareData, ERROR_HEADER, MIDDLWARE_HEADER};
+use crate::middleware::{
+    hash_primary, send_ack, send_timeout, MiddlewareData, ERROR_HEADER, MIDDLWARE_HEADER,
+};
 use crate::ser_de::{self, ser};
 
 use super::PayloadHandler;
@@ -12,7 +14,9 @@ use std::fmt::Debug;
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::io;
 use std::net::{SocketAddr, SocketAddrV4};
-use tokio::net::UdpSocket;
+use std::sync::Arc;
+use std::time::Duration;
+use tokio::net::{ToSocketAddrs, UdpSocket};
 
 const BYTE_BUF_SIZE: usize = 65535;
 
@@ -23,7 +27,10 @@ const BYTE_BUF_SIZE: usize = 65535;
 ///
 #[derive(Debug)]
 pub struct Dispatcher<H: Debug + PayloadHandler> {
-    socket: UdpSocket,
+    socket: Arc<UdpSocket>,
+
+    timeout: Duration,
+    retries: u8,
 
     // Inner data structure that implements logic for remote interfaces
     handler: H,
@@ -42,12 +49,22 @@ where
     H: Debug + PayloadHandler,
 {
     /// Create a new dispatcher from the handler and a listening IP
-    pub async fn new(addr: SocketAddrV4, handler: H) -> Self {
+    pub async fn new<A: ToSocketAddrs>(
+        addr: A,
+        handler: H,
+        timeout: Duration,
+        retries: u8,
+    ) -> Self {
         let socket = UdpSocket::bind(addr)
             .await
             .expect("failed to bind to specified address");
 
-        Self { socket, handler }
+        Self {
+            socket: Arc::new(socket),
+            handler,
+            timeout,
+            retries,
+        }
     }
 
     /// Runs the dispatcher indefinitely.
@@ -73,6 +90,9 @@ where
                     let copy = &buf[..bytes];
                     log::debug!("packet: {:?}", copy);
 
+                    // send an ack back
+                    send_ack(&self.socket, addr, copy).await;
+
                     let data: MiddlewareData = super::deserialize_primary(&buf).unwrap();
 
                     let middlware_response = match data {
@@ -83,13 +103,31 @@ where
                         MiddlewareData::Callback(call) => handle_callback(&call).await,
 
                         // errors are client-side only
-                        MiddlewareData::Error(_) => unimplemented!(
-                            "dispatcher should not be receiving errors from a client"
-                        ),
+                        // dispatcher should not be receiving errors directly from a client
+                        MiddlewareData::Error(e) => {
+                            log::info!("stray error: {:?}", e);
+                            continue;
+                        }
+
+                        // acks are checked for right after sending
+                        MiddlewareData::Ack(h) => {
+                            log::info!("stray ack: {}", h);
+                            continue;
+                        }
                     };
 
                     let serialized_response =
                         super::serialize_primary(&middlware_response).unwrap();
+
+                    // send the result and await an ack
+                    send_timeout(
+                        &self.socket,
+                        addr,
+                        &serialized_response,
+                        self.timeout,
+                        self.retries,
+                    )
+                    .await;
 
                     let sent_bytes = self
                         .socket

@@ -1,6 +1,5 @@
 //! Remote methods, data structures between server and client are defined here.
 
-mod callback;
 pub mod fs;
 pub mod interfaces;
 

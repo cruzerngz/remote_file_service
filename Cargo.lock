@@ -674,6 +674,7 @@ dependencies = [
  "log",
  "rfs_core",
  "serde",
+ "tokio",
 ]
 
 [[package]]
@@ -698,6 +699,7 @@ dependencies = [
  "async-trait",
  "futures",
  "log",
+ "pretty_env_logger",
  "rfs_macros",
  "serde",
  "serde_bytes",

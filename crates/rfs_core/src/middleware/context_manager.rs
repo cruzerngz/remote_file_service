@@ -1,7 +1,7 @@
 //! The client-side middleware module
 
 use crate::{
-    middleware::{MiddlewareData, MIDDLWARE_HEADER},
+    middleware::{send_ack, send_timeout, MiddlewareData, MIDDLWARE_HEADER},
     ser_de, RemotelyInvocable,
 };
 use std::{
@@ -35,7 +35,6 @@ pub struct ContextManager {
 
 impl ContextManager {
     /// Timeout for sending requests to the remote
-    const TIMEOUT: Duration = Duration::from_secs(15);
 
     /// Create a new context manager, along with a target IP and port.
     ///
@@ -62,29 +61,18 @@ impl ContextManager {
 
         let payload = MiddlewareData::Ping;
 
-        sock.send_to(
-            &super::serialize_primary(&MiddlewareData::Ping).unwrap(),
-            s.target_ip,
+        let res = send_timeout(
+            &sock,
+            target,
+            &super::serialize_primary(&payload).unwrap(),
+            timeout,
+            retries,
         )
         .await?;
 
-        let mut buf = [0; 1000];
-        let recv_bytes = sock.recv(&mut buf).await.unwrap();
+        log::debug!("handshake established");
 
-        let revc_data: MiddlewareData = super::deserialize_primary(&buf[..recv_bytes]).unwrap();
-
-        match revc_data == payload {
-            true => {
-                log::debug!("handshake successful");
-
-                Ok(s)
-            }
-            false => {
-                log::debug!("handshake unsuccessful");
-
-                Err(io::Error::new(io::ErrorKind::Other, "you are a failure"))
-            }
-        }
+        Ok(s)
     }
 
     /// Send an invocation over the network, and returns the result.
@@ -101,16 +89,26 @@ impl ContextManager {
         let middleware_payload = MiddlewareData::Payload(data);
         let serialized_payload = super::serialize_primary(&middleware_payload).unwrap();
 
-        let size = source
-            .send(&serialized_payload)
-            .await
-            .map_err(|_| InvokeError::DataTransmissionFailed)?;
+        let size = send_timeout(
+            &source,
+            self.target_ip,
+            &serialized_payload,
+            self.timeout,
+            self.retries,
+        )
+        .await
+        .map_err(|_| InvokeError::RequestTimedOut)?;
 
         log::debug!("request sent: {} bytes", size);
 
         let mut recv_buf = [0; 10_000];
         let num_bytes = source
             .recv(&mut recv_buf)
+            .await
+            .map_err(|_| InvokeError::DataTransmissionFailed)?;
+
+        // ack back to remote
+        send_ack(&source, self.target_ip, &recv_buf[..num_bytes])
             .await
             .map_err(|_| InvokeError::DataTransmissionFailed)?;
 

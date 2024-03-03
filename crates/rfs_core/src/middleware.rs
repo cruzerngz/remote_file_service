@@ -3,11 +3,17 @@
 //! over the network.
 //!
 
+mod callback;
 mod context_manager;
 mod dispatch;
 
+use futures::FutureExt;
+use std::hash::{DefaultHasher, Hash, Hasher};
+use std::io;
+use std::net::SocketAddrV4;
+use std::time::Duration;
 use std::{fmt::Debug, net::Ipv4Addr};
-use tokio::net::UdpSocket;
+use tokio::net::{ToSocketAddrs, UdpSocket};
 
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
@@ -70,6 +76,10 @@ pub enum MiddlewareData {
 
     /// Err messages go here
     Error(InvokeError),
+
+    /// An acknowledgement from either end that a message has been received.
+    /// The value sent
+    Ack(u64),
 }
 
 /// Handle middleware messages, either from the client or remote.
@@ -196,65 +206,110 @@ macro_rules! payload_handler {
     };
 }
 
+/// The hash method used for verifying the integrity of data
+fn hash_primary<T: Hash>(item: &T) -> u64 {
+    let mut hasher = DefaultHasher::new();
+    item.hash(&mut hasher);
+
+    hasher.finish()
+}
+
+/// Send a payload to another UDP socket and awaits an acknowledgement
+/// from the target.
+///
+/// A freshly bound UDP socket can be used, or an existing one.
+async fn send_timeout<A: ToSocketAddrs>(
+    sock: &UdpSocket,
+    target: A,
+    payload: &[u8],
+    timeout: Duration,
+    mut retries: u8,
+) -> io::Result<usize> {
+    let mut res: io::Result<usize> = Err(io::Error::new(
+        io::ErrorKind::TimedOut,
+        "connection timed out",
+    ));
+
+    while retries != 0 {
+        log::debug!("sending data to target");
+        let send_size = sock.send_to(payload, &target).await?;
+        let mut buf = [0_u8; 100];
+
+        tokio::select! {
+            biased;
+
+            recv_res = async {
+                sock.recv(&mut buf).await
+            }.fuse() => {
+                log::debug!("response received from target");
+
+                let recv_size = recv_res?;
+                let slice = &buf[..recv_size];
+
+                let de: MiddlewareData = deserialize_primary(slice).unwrap();
+                let hash = if let MiddlewareData::Ack(h) = de {
+                    h
+                } else {
+                    res = Err(io::Error::new(io::ErrorKind::InvalidData, "expected Ack"));
+                    break;
+                };
+
+                if hash == hash_primary(&payload) {
+                    res = Ok(send_size);
+                } else {
+                    res = Err(io::Error::new(io::ErrorKind::InvalidData, "Ack does not match"));
+                }
+
+                break;
+            },
+            _ = async {
+                tokio::time::sleep(timeout).await;
+            }.fuse() => {
+                log::debug!("response timed out. retries remaining: {}", retries);
+
+                retries -= 1;
+                continue;
+            }
+        }
+    }
+
+    res
+}
+
+/// Returns an ack to the sender. The ack contains a hash of the payload.
+async fn send_ack<A: ToSocketAddrs>(sock: &UdpSocket, target: A, payload: &[u8]) -> io::Result<()> {
+    let ack = MiddlewareData::Ack(hash_primary(&payload));
+    let ack_bytes = serialize_primary(&ack).expect("serialization should not fail");
+
+    sock.send_to(&ack_bytes, target).await?;
+
+    Ok(())
+}
+
 #[cfg(test)]
 #[allow(unused)]
 mod tests {
 
     use super::*;
 
-    const MIDDLEWARE_PACKET_DATA: &[u8] = &[
-        101, 115, 0, 0, 0, 0, 0, 0, 0, 7, 80, 97, 121, 108, 111, 97, 100, 118, 91, 110, 0, 0, 0, 0,
-        0, 0, 0, 83, 110, 0, 0, 0, 0, 0, 0, 0, 105, 110, 0, 0, 0, 0, 0, 0, 0, 109, 110, 0, 0, 0, 0,
-        0, 0, 0, 112, 110, 0, 0, 0, 0, 0, 0, 0, 108, 110, 0, 0, 0, 0, 0, 0, 0, 101, 110, 0, 0, 0,
-        0, 0, 0, 0, 79, 110, 0, 0, 0, 0, 0, 0, 0, 112, 110, 0, 0, 0, 0, 0, 0, 0, 115, 110, 0, 0, 0,
-        0, 0, 0, 0, 58, 110, 0, 0, 0, 0, 0, 0, 0, 58, 110, 0, 0, 0, 0, 0, 0, 0, 115, 110, 0, 0, 0,
-        0, 0, 0, 0, 97, 110, 0, 0, 0, 0, 0, 0, 0, 121, 110, 0, 0, 0, 0, 0, 0, 0, 95, 110, 0, 0, 0,
-        0, 0, 0, 0, 104, 110, 0, 0, 0, 0, 0, 0, 0, 101, 110, 0, 0, 0, 0, 0, 0, 0, 108, 110, 0, 0,
-        0, 0, 0, 0, 0, 108, 110, 0, 0, 0, 0, 0, 0, 0, 111, 110, 0, 0, 0, 0, 0, 0, 0, 101, 110, 0,
-        0, 0, 0, 0, 0, 0, 115, 110, 0, 0, 0, 0, 0, 0, 0, 0, 110, 0, 0, 0, 0, 0, 0, 0, 0, 110, 0, 0,
-        0, 0, 0, 0, 0, 0, 110, 0, 0, 0, 0, 0, 0, 0, 0, 110, 0, 0, 0, 0, 0, 0, 0, 0, 110, 0, 0, 0,
-        0, 0, 0, 0, 0, 110, 0, 0, 0, 0, 0, 0, 0, 0, 110, 0, 0, 0, 0, 0, 0, 0, 7, 110, 0, 0, 0, 0,
-        0, 0, 0, 82, 110, 0, 0, 0, 0, 0, 0, 0, 101, 110, 0, 0, 0, 0, 0, 0, 0, 113, 110, 0, 0, 0, 0,
-        0, 0, 0, 117, 110, 0, 0, 0, 0, 0, 0, 0, 101, 110, 0, 0, 0, 0, 0, 0, 0, 115, 110, 0, 0, 0,
-        0, 0, 0, 0, 116, 110, 0, 0, 0, 0, 0, 0, 0, 109, 110, 0, 0, 0, 0, 0, 0, 0, 123, 110, 0, 0,
-        0, 0, 0, 0, 0, 60, 110, 0, 0, 0, 0, 0, 0, 0, 115, 110, 0, 0, 0, 0, 0, 0, 0, 0, 110, 0, 0,
-        0, 0, 0, 0, 0, 0, 110, 0, 0, 0, 0, 0, 0, 0, 0, 110, 0, 0, 0, 0, 0, 0, 0, 0, 110, 0, 0, 0,
-        0, 0, 0, 0, 0, 110, 0, 0, 0, 0, 0, 0, 0, 0, 110, 0, 0, 0, 0, 0, 0, 0, 0, 110, 0, 0, 0, 0,
-        0, 0, 0, 7, 110, 0, 0, 0, 0, 0, 0, 0, 99, 110, 0, 0, 0, 0, 0, 0, 0, 111, 110, 0, 0, 0, 0,
-        0, 0, 0, 110, 110, 0, 0, 0, 0, 0, 0, 0, 116, 110, 0, 0, 0, 0, 0, 0, 0, 101, 110, 0, 0, 0,
-        0, 0, 0, 0, 110, 110, 0, 0, 0, 0, 0, 0, 0, 116, 110, 0, 0, 0, 0, 0, 0, 0, 45, 110, 0, 0, 0,
-        0, 0, 0, 0, 115, 110, 0, 0, 0, 0, 0, 0, 0, 0, 110, 0, 0, 0, 0, 0, 0, 0, 0, 110, 0, 0, 0, 0,
-        0, 0, 0, 0, 110, 0, 0, 0, 0, 0, 0, 0, 0, 110, 0, 0, 0, 0, 0, 0, 0, 0, 110, 0, 0, 0, 0, 0,
-        0, 0, 0, 110, 0, 0, 0, 0, 0, 0, 0, 0, 110, 0, 0, 0, 0, 0, 0, 0, 18, 110, 0, 0, 0, 0, 0, 0,
-        0, 110, 110, 0, 0, 0, 0, 0, 0, 0, 101, 110, 0, 0, 0, 0, 0, 0, 0, 119, 110, 0, 0, 0, 0, 0,
-        0, 0, 32, 110, 0, 0, 0, 0, 0, 0, 0, 99, 110, 0, 0, 0, 0, 0, 0, 0, 111, 110, 0, 0, 0, 0, 0,
-        0, 0, 110, 110, 0, 0, 0, 0, 0, 0, 0, 102, 110, 0, 0, 0, 0, 0, 0, 0, 105, 110, 0, 0, 0, 0,
-        0, 0, 0, 103, 110, 0, 0, 0, 0, 0, 0, 0, 117, 110, 0, 0, 0, 0, 0, 0, 0, 114, 110, 0, 0, 0,
-        0, 0, 0, 0, 116, 110, 0, 0, 0, 0, 0, 0, 0, 97, 110, 0, 0, 0, 0, 0, 0, 0, 116, 110, 0, 0, 0,
-        0, 0, 0, 0, 105, 110, 0, 0, 0, 0, 0, 0, 0, 111, 110, 0, 0, 0, 0, 0, 0, 0, 110, 110, 0, 0,
-        0, 0, 0, 0, 0, 62, 110, 0, 0, 0, 0, 0, 0, 0, 125, 93,
-    ];
+    #[tokio::test]
+    async fn test_send_timeout() {
+        std::env::set_var("RUST_LOG", "DEBUG");
+        pretty_env_logger::init();
 
-    const MIDDLEWARE_PACKET_DATA_PACKED: &[u8] = &[
-        101, 115, 58, 7, 58, 7, 80, 97, 121, 108, 111, 97, 100, 118, 91, 110, 58, 7, 58, 83, 110,
-        58, 7, 58, 105, 110, 58, 7, 58, 109, 110, 58, 7, 58, 112, 110, 58, 7, 58, 108, 110, 58, 7,
-        58, 101, 110, 58, 7, 58, 79, 110, 58, 7, 58, 112, 110, 58, 7, 58, 115, 110, 58, 7, 58, 58,
-        110, 58, 7, 58, 58, 110, 58, 7, 58, 115, 110, 58, 7, 58, 97, 110, 58, 7, 58, 121, 110, 58,
-        7, 58, 95, 110, 58, 7, 58, 104, 110, 58, 7, 58, 101, 110, 58, 7, 58, 108, 110, 58, 7, 58,
-        108, 110, 58, 7, 58, 111, 110, 58, 7, 58, 101, 110, 58, 7, 58, 115, 110, 58, 8, 58, 110,
-        58, 8, 58, 110, 58, 8, 58, 110, 58, 8, 58, 110, 58, 8, 58, 110, 58, 8, 58, 110, 58, 8, 58,
-        110, 58, 7, 58, 7, 110, 58, 7, 58, 82, 110, 58, 7, 58, 101, 110, 58, 7, 58, 113, 110, 58,
-        7, 58, 117, 110, 58, 7, 58, 101, 110, 58, 7, 58, 115, 110, 58, 7, 58, 116, 110, 58, 7, 58,
-        109, 110, 58, 7, 58, 123, 110, 58, 7, 58, 60, 110, 58, 7, 58, 115, 110, 58, 8, 58, 110, 58,
-        8, 58, 110, 58, 8, 58, 110, 58, 8, 58, 110, 58, 8, 58, 110, 58, 8, 58, 110, 58, 8, 58, 110,
-        58, 7, 58, 7, 110, 58, 7, 58, 99, 110, 58, 7, 58, 111, 110, 58, 7, 58, 110, 110, 58, 7, 58,
-        116, 110, 58, 7, 58, 101, 110, 58, 7, 58, 110, 110, 58, 7, 58, 116, 110, 58, 7, 58, 45,
-        110, 58, 7, 58, 115, 110, 58, 8, 58, 110, 58, 8, 58, 110, 58, 8, 58, 110, 58, 8, 58, 110,
-        58, 8, 58, 110, 58, 8, 58, 110, 58, 8, 58, 110, 58, 7, 58, 18, 110, 58, 7, 58, 110, 110,
-        58, 7, 58, 101, 110, 58, 7, 58, 119, 110, 58, 7, 58, 32, 110, 58, 7, 58, 99, 110, 58, 7,
-        58, 111, 110, 58, 7, 58, 110, 110, 58, 7, 58, 102, 110, 58, 7, 58, 105, 110, 58, 7, 58,
-        103, 110, 58, 7, 58, 117, 110, 58, 7, 58, 114, 110, 58, 7, 58, 116, 110, 58, 7, 58, 97,
-        110, 58, 7, 58, 116, 110, 58, 7, 58, 105, 110, 58, 7, 58, 111, 110, 58, 7, 58, 110, 110,
-        58, 7, 58, 62, 110, 58, 7, 58, 125, 93,
-    ];
+        let sock = UdpSocket::bind(SocketAddrV4::new(Ipv4Addr::LOCALHOST, 0))
+            .await
+            .unwrap();
+
+        let res = send_timeout(
+            &sock,
+            SocketAddrV4::new(Ipv4Addr::LOCALHOST, 10000),
+            &[10, 10, 10, 10],
+            Duration::from_secs(3),
+            3,
+        )
+        .await;
+
+        assert!(matches!(res, Err(_)));
+    }
 }

@@ -28,7 +28,13 @@ async fn main() {
 
     log::info!("server listening on {}", addr);
 
-    let mut dispatcher = Dispatcher::new(addr, server).await;
+    let mut dispatcher = Dispatcher::new(
+        addr,
+        server,
+        args.request_timeout.into(),
+        rfs::defaults::DEFAULT_RETRIES,
+    )
+    .await;
 
     dispatcher.dispatch().await;
 

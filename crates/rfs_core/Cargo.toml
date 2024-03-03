@@ -15,3 +15,5 @@ serde = { workspace = true }
 serde_bytes = { workspace = true }
 log = { workspace = true }
 tokio = { workspace = true }
+
+pretty_env_logger = { workspace = true }
