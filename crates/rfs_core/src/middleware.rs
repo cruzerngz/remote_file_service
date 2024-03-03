@@ -8,29 +8,23 @@ mod context_manager;
 mod dispatch;
 
 use futures::FutureExt;
-use std::hash::{DefaultHasher, Hash, Hasher};
-use std::io;
+use std::hash::{BuildHasher, DefaultHasher, Hash, Hasher, RandomState};
 use std::time::Duration;
+use std::{clone, io};
 use std::{fmt::Debug, net::Ipv4Addr};
 use tokio::net::{ToSocketAddrs, UdpSocket};
 
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 
-pub use context_manager::ContextManager;
-
+pub use context_manager::*;
 pub use dispatch::*;
 
 // define the serde method here once for use by submodules
 use crate::ser_de::deserialize_packed as deserialize_primary;
 use crate::ser_de::serialize_packed as serialize_primary;
 
-/// Error header send between the dispatcher and context manager
-const ERROR_HEADER: &[u8] = "ERROR_ERROR_ERROR_ERROR_HEADER".as_bytes();
-/// Header used when communicating directly between the context manager
-/// and the dispatcher.
-const MIDDLWARE_HEADER: &[u8] = "MIDDLEWARE_HEADER".as_bytes();
-
+/// Max payload size
 const BYTE_BUF_SIZE: usize = 65535;
 
 /// Method invocation errors
@@ -210,7 +204,7 @@ macro_rules! payload_handler {
     };
 }
 
-/// Types that implement this trait can be plugged into [`Dispatcher`].
+/// Types that implement this trait can be plugged into [`ContextManager`] and [`Dispatcher`].
 ///
 /// All methods are associated methods; no `self` is required.
 #[async_trait]
@@ -347,6 +341,60 @@ impl TransmissionProtocol for RequestAckProto {
     }
 }
 
+/// A faulty version of [RequestAckProto].
+///
+/// This protocol may drop packets on transmission.
+/// The packet drop probabilty is specified in the const generic.
+///
+/// The proto will fail to transmit every 1 in `FRAC` invocations on average.
+#[derive(Clone, Debug)]
+pub struct FaultyRequestAckProto<const FRAC: u32>;
+
+#[async_trait]
+impl<const FRAC: u32> TransmissionProtocol for FaultyRequestAckProto<FRAC> {
+    async fn send_bytes<A>(
+        sock: &UdpSocket,
+        target: A,
+        payload: &[u8],
+        timeout: Duration,
+        retries: u8,
+    ) -> io::Result<usize>
+    where
+        A: ToSocketAddrs + std::marker::Send + std::marker::Sync,
+    {
+        // drop packets every now and then
+        match probability_frac(FRAC) {
+            true => {
+                log::error!("faulty packet transmission");
+                Ok(payload.len())
+            }
+            false => RequestAckProto::send_bytes(sock, target, payload, timeout, retries).await,
+        }
+    }
+
+    async fn send_ack<A>(sock: &UdpSocket, target: A, payload: &[u8]) -> io::Result<()>
+    where
+        A: ToSocketAddrs + std::marker::Send + std::marker::Sync,
+    {
+        // drop packets every now and then
+        match probability_frac(FRAC) {
+            true => {
+                log::error!("faulty packet transmission");
+                Ok(())
+            }
+            false => RequestAckProto::send_ack(sock, target, payload).await,
+        }
+    }
+}
+
+/// Returns the outcome of the probability of getting `1` in `frac`.
+fn probability_frac(frac: u32) -> bool {
+    let rand_num: u64 = rand::random();
+    let threshold = u64::MAX / frac as u64;
+
+    rand_num < threshold
+}
+
 /// UDP-like protocol, packets are sent to the destination without checking if they have been received.
 #[derive(Clone, Debug)]
 pub struct SimpleProto;
@@ -403,5 +451,22 @@ mod tests {
         // .await;
 
         // assert!(matches!(res, Err(_)));
+    }
+
+    #[test]
+    fn test_prob() {
+        let frac = 10;
+
+        let probs = (0..64)
+            .into_iter()
+            .map(|_| match probability_frac(frac) {
+                true => 1,
+                false => 0,
+            })
+            .collect::<Vec<_>>();
+
+        let s: i32 = probs.iter().sum();
+
+        println!("1 in {} yields {}", frac, s);
     }
 }

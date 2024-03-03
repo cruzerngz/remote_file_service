@@ -26,7 +26,7 @@ async fn main() -> io::Result<()> {
         SocketAddrV4::new(args.target, args.port),
         args.request_timeout.into(),
         args.num_retries,
-        RequestAckProto,
+        FaultyRequestAckProto::<10>,
     )
     .await?;
 
