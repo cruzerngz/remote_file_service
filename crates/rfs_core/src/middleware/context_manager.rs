@@ -61,7 +61,7 @@ impl ContextManager {
 
         let payload = MiddlewareData::Ping;
 
-        let res = send_timeout(
+        send_timeout(
             &sock,
             target,
             &super::serialize_primary(&payload).unwrap(),
@@ -70,9 +70,27 @@ impl ContextManager {
         )
         .await?;
 
-        log::debug!("handshake established");
+        let mut buf = [0_u8; 100];
+        let size = sock.recv(&mut buf).await?;
+        let copy = &buf[..size];
 
-        Ok(s)
+        send_ack(&sock, target, copy).await?;
+
+        let resp: MiddlewareData = super::deserialize_primary(copy).unwrap();
+
+        match resp == payload {
+            true => {
+                log::debug!("handshake established");
+                Ok(s)
+            }
+            false => {
+                log::debug!("invalid response");
+                Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "Expected ping response",
+                ))
+            }
+        }
     }
 
     /// Send an invocation over the network, and returns the result.
@@ -82,7 +100,7 @@ impl ContextManager {
 
         // for now, bind and connect on every invocation
 
-        let source = self.connect_to_remote().await?;
+        let source = self.connect_remote().await?;
 
         log::debug!("connected to {}", self.target_ip);
 
@@ -126,12 +144,12 @@ impl ContextManager {
     async fn generate_socket(&self) -> io::Result<UdpSocket> {
         let sock = UdpSocket::bind(SocketAddrV4::new(self.source_ip, 0)).await?;
 
-        // sock.connect(self.target_ip)?;
         Ok(sock)
     }
 
-    /// Connects a UDP socket to the remote and returns it
-    async fn connect_to_remote(&self) -> Result<UdpSocket, InvokeError> {
+    /// Connects a UDP socket to the remote specified in `self`
+    /// and returns it.
+    async fn connect_remote(&self) -> Result<UdpSocket, InvokeError> {
         let sock = self
             .generate_socket()
             .await
@@ -146,7 +164,7 @@ impl ContextManager {
 
     /// Ping the remote and waits for a response
     async fn ping_remote(&self) -> Result<(), InvokeError> {
-        let sock = self.connect_to_remote().await?;
+        let sock = self.connect_remote().await?;
 
         sock.send(
             &ser_de::serialize_packed_with_header(&MiddlewareData::Ping, MIDDLWARE_HEADER).unwrap(),

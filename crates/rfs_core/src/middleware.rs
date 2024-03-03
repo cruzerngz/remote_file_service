@@ -189,7 +189,7 @@ macro_rules! payload_handler {
                         <$payload_ty as rfs::RemoteMethodSignature>::remote_method_signature(),
                     ) {
 
-                        log::info!("method: {}", std::str::from_utf8(<$payload_ty as rfs::RemoteMethodSignature>::remote_method_signature()).unwrap());
+                        log::info!("{}", std::str::from_utf8(<$payload_ty as rfs::RemoteMethodSignature>::remote_method_signature()).unwrap());
 
                         let payload =
                             <$payload_ty as rfs::RemotelyInvocable>::process_invocation(payload_bytes)?;
@@ -265,9 +265,9 @@ async fn send_timeout<A: ToSocketAddrs>(
             _ = async {
                 tokio::time::sleep(timeout).await;
             }.fuse() => {
+                retries -= 1;
                 log::debug!("response timed out. retries remaining: {}", retries);
 
-                retries -= 1;
                 continue;
             }
         }

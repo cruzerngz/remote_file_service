@@ -4,6 +4,7 @@ mod ui;
 use std::{
     io::{self, Write},
     net::SocketAddrV4,
+    time::Duration,
 };
 
 use args::ClientArgs;
@@ -32,7 +33,7 @@ async fn main() -> io::Result<()> {
     .await
     .unwrap();
 
-    let x = SimpleOpsClient::say_hello(&manager, "new configurtation".to_string())
+    let _ = SimpleOpsClient::say_hello(&manager, "new configurtation".to_string())
         .await
         .unwrap();
 
