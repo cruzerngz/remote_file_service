@@ -13,7 +13,10 @@ use clap::Parser;
 use crossterm::event::{self, KeyCode, KeyEventKind};
 // use futures::{AsyncReadExt, AsyncWriteExt};
 use ratatui::{backend::CrosstermBackend, style::Stylize, widgets, Terminal};
-use rfs::{interfaces::SimpleOpsClient, middleware::ContextManager};
+use rfs::{
+    interfaces::SimpleOpsClient,
+    middleware::{ContextManager, RequestAckProto},
+};
 // use rfs_core::middleware::ContextManager;
 // use rfs::{interfaces::*, middleware::ContextManager};
 
@@ -29,6 +32,7 @@ async fn main() -> io::Result<()> {
         SocketAddrV4::new(args.target, args.port),
         args.request_timeout.into(),
         args.num_retries,
+        RequestAckProto,
     )
     .await
     .unwrap();

@@ -8,14 +8,14 @@ use crate::middleware::{
 };
 use crate::ser_de::{self, ser};
 
-use super::PayloadHandler;
+use super::{PayloadHandler, TransmissionProtocol};
 use std::collections::btree_map;
 use std::fmt::Debug;
 use std::hash::{DefaultHasher, Hash, Hasher};
-use std::io;
 use std::net::{SocketAddr, SocketAddrV4};
 use std::sync::Arc;
 use std::time::Duration;
+use std::{io, marker};
 use tokio::net::{ToSocketAddrs, UdpSocket};
 
 const BYTE_BUF_SIZE: usize = 65535;
@@ -24,16 +24,21 @@ const BYTE_BUF_SIZE: usize = 65535;
 ///
 /// The dispatcher routes the contents of remote invocations to their
 /// appropriate handlers.
-///
 #[derive(Debug)]
-pub struct Dispatcher<H: Debug + PayloadHandler> {
+pub struct Dispatcher<H, T>
+where
+    H: Debug + PayloadHandler,
+    T: TransmissionProtocol,
+{
     socket: Arc<UdpSocket>,
-
     timeout: Duration,
     retries: u8,
 
-    // Inner data structure that implements logic for remote interfaces
+    /// Inner data structure that implements logic for remote interfaces
     handler: H,
+    /// Message passing protocol (transport layer???)
+    /// We only need the trait associated methods, so a struct instance is not required.
+    protocol: marker::PhantomData<T>,
 }
 
 /// A faulty dispatcher. That is, a dispatcher that occasionally drops requests and does not send a response.
@@ -44,14 +49,18 @@ pub struct FaultyDispatcher<H: Debug + PayloadHandler> {
     handler: H,
 }
 
-impl<H> Dispatcher<H>
+impl<H, T> Dispatcher<H, T>
 where
     H: Debug + PayloadHandler,
+    T: TransmissionProtocol,
 {
-    /// Create a new dispatcher from the handler and a listening IP
+    /// Create a new dispatcher from the handler and a listening IP.
+    ///
+    /// Choose a transmission protocol that implmements [`TransmissionProtocol`]
     pub async fn new<A: ToSocketAddrs>(
         addr: A,
         handler: H,
+        protocol: T,
         timeout: Duration,
         retries: u8,
     ) -> Self {
@@ -62,6 +71,7 @@ where
         Self {
             socket: Arc::new(socket),
             handler,
+            protocol: marker::PhantomData,
             timeout,
             retries,
         }
@@ -91,7 +101,7 @@ where
                     log::debug!("packet: {:?}", copy);
 
                     // send an ack back
-                    send_ack(&self.socket, addr, copy).await;
+                    T::send_ack(&self.socket, addr, copy).await;
 
                     let data: MiddlewareData = super::deserialize_primary(&buf).unwrap();
 
@@ -120,7 +130,7 @@ where
                         super::serialize_primary(&middlware_response).unwrap();
 
                     // send the result and await an ack
-                    send_timeout(
+                    let sent_bytes = T::send_bytes(
                         &self.socket,
                         addr,
                         &serialized_response,
@@ -129,13 +139,7 @@ where
                     )
                     .await;
 
-                    let sent_bytes = self
-                        .socket
-                        .send_to(&serialized_response, addr)
-                        .await
-                        .expect("failed to send back to source");
-
-                    log::debug!("sent {} bytes to {}", sent_bytes, addr);
+                    log::debug!("sent {:?} bytes to {}", sent_bytes, addr);
                 }
 
                 // log the error

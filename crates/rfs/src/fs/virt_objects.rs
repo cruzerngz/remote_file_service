@@ -9,7 +9,7 @@ use std::{
 };
 
 use futures::{AsyncRead, AsyncWrite, FutureExt};
-use rfs_core::middleware::ContextManager;
+use rfs_core::middleware::{ContextManager, TransmissionProtocol};
 use serde::{Deserialize, Serialize};
 
 use crate::interfaces::PrimitiveFsOpsClient;
@@ -19,8 +19,8 @@ use crate::interfaces::PrimitiveFsOpsClient;
 /// This struct aims to duplicate some of the most common file operations
 /// available in [std::fs::File].
 #[derive(Clone, Debug)]
-pub struct VirtFile {
-    ctx: ContextManager,
+pub struct VirtFile<T: TransmissionProtocol> {
+    ctx: ContextManager<T>,
     path: PathBuf,
 
     /// The local byte buffer of the file
@@ -31,8 +31,8 @@ pub struct VirtFile {
 ///
 /// Attempts to mirror [std::fs::OpenOptions].
 #[derive(Clone, Debug)]
-pub struct VirtOpenOptions {
-    ctx: ContextManager,
+pub struct VirtOpenOptions<T: TransmissionProtocol> {
+    ctx: ContextManager<T>,
     create: bool,
     read: bool,
     write: bool,
@@ -72,11 +72,14 @@ pub struct VirtPermissions {
     execute: (bool, bool, bool),
 }
 
-impl VirtFile {
+impl<T> VirtFile<T>
+where
+    T: TransmissionProtocol,
+{
     /// Create a new file on the remote.
     ///
     /// Attempts to mirror [std::fs::File::create]
-    pub async fn create<P: AsRef<Path>>(ctx: ContextManager, path: P) -> std::io::Result<Self> {
+    pub async fn create<P: AsRef<Path>>(ctx: ContextManager<T>, path: P) -> std::io::Result<Self> {
         let res = PrimitiveFsOpsClient::create(
             &ctx,
             path.as_ref()
@@ -104,7 +107,7 @@ impl VirtFile {
     /// Open an existing file in read-only mode.
     ///
     /// Attempts to mirror [std::fs::File::open]
-    pub async fn open<P: AsRef<Path>>(ctx: ContextManager, path: P) -> std::io::Result<Self> {
+    pub async fn open<P: AsRef<Path>>(ctx: ContextManager<T>, path: P) -> std::io::Result<Self> {
         // let res = PrimitiveFsOpsClient
 
         todo!()
@@ -124,7 +127,10 @@ impl VirtFile {
     }
 }
 
-impl AsyncRead for VirtFile {
+impl<T> AsyncRead for VirtFile<T>
+where
+    T: TransmissionProtocol,
+{
     fn poll_read(
         self: std::pin::Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
@@ -167,7 +173,10 @@ impl AsyncRead for VirtFile {
     }
 }
 
-impl AsyncWrite for VirtFile {
+impl<T> AsyncWrite for VirtFile<T>
+where
+    T: TransmissionProtocol,
+{
     fn poll_write(
         self: std::pin::Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
@@ -204,8 +213,11 @@ impl AsyncWrite for VirtFile {
     }
 }
 
-impl VirtOpenOptions {
-    pub fn new(ctx: ContextManager) -> Self {
+impl<T> VirtOpenOptions<T>
+where
+    T: TransmissionProtocol,
+{
+    pub fn new(ctx: ContextManager<T>) -> Self {
         Self {
             ctx,
             // target: todo!(),
@@ -248,7 +260,7 @@ impl VirtOpenOptions {
         self
     }
 
-    pub fn open<P: AsRef<Path>>(&self, path: P) -> io::Result<VirtFile> {
+    pub fn open<P: AsRef<Path>>(&self, path: P) -> io::Result<VirtFile<T>> {
         match (
             self.read,
             self.write,

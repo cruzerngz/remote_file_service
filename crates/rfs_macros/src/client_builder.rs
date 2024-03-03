@@ -7,7 +7,7 @@ use proc_macro2::{Ident, Span};
 use quote::{quote, ToTokens};
 use syn::{
     punctuated::Punctuated, spanned::Spanned, token::Comma, Block, Field, FieldValue, FnArg,
-    ImplItemFn, Pat, ReturnType, Signature, TraitItemFn,
+    Generics, ImplItemFn, Pat, ReturnType, Signature, TraitItemFn,
 };
 
 use crate::{
@@ -32,7 +32,7 @@ pub fn derive_client(
     // ten thousand steps, so I'm just going to define it here.
     #[allow(non_snake_case)]
     let NEW_FUNC_ARG: FnArg =
-        syn::parse2(quote! {ctx: &rfs_core::middleware::ContextManager}).unwrap();
+        syn::parse2(quote! {ctx: &rfs_core::middleware::ContextManager<T>}).unwrap();
 
     // struct definition
     let struct_name = Ident::new(&format!("{}Client", &trait_name), trait_name.span());
@@ -63,6 +63,11 @@ pub fn derive_client(
                 syn::parse2(quote! {rfs_core::middleware::InvokeError}).unwrap(),
             );
 
+            // Generic should match `NEW_FUNC_ARG`
+            // check if trait ident matches the definition
+            signature.generics =
+                syn::parse_quote! {<T: rfs_core::middleware::TransmissionProtocol>};
+
             let new_method = ImplItemFn {
                 attrs: method.attrs,
                 vis: syn::Visibility::Public(syn::token::Pub {
@@ -92,7 +97,7 @@ pub fn derive_client(
     [struct_def, impl_block].into_iter().collect()
 }
 
-/// Generates code to transform a set of parameters to an enum request.
+/// Generates the code block to transform a set of parameters to an enum request.
 ///
 /// The enum is assumesd to contain the named variant [`VARIANT_REQUEST`].
 ///

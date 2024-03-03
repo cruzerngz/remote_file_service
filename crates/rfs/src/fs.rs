@@ -6,6 +6,7 @@ mod virt_objects;
 use std::{io, path::Path};
 
 use futures::AsyncReadExt;
+use rfs_core::middleware::TransmissionProtocol;
 pub use virt_objects::*;
 
 use crate::interfaces::PrimitiveFsOpsClient;
@@ -16,10 +17,14 @@ use crate::interfaces::PrimitiveFsOpsClient;
 ///
 /// This function uses the primitive method [PrimitiveFsOpsClient::read] and does not
 /// create a virtual file.
-pub async fn read_to_string<P: AsRef<Path>>(
-    ctx: rfs_core::middleware::ContextManager,
+pub async fn read_to_string<P, T>(
+    ctx: rfs_core::middleware::ContextManager<T>,
     path: P,
-) -> io::Result<String> {
+) -> io::Result<String>
+where
+    P: AsRef<Path>,
+    T: TransmissionProtocol,
+{
     let contents = PrimitiveFsOpsClient::read_bytes(
         &ctx,
         path.as_ref()

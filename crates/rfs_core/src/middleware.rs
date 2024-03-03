@@ -142,14 +142,14 @@ pub trait Addressable {
 /// Serve requests by binding to a port.
 ///
 /// The default implementation does not cache requests.
-#[async_trait]
-pub trait RequestServer: PayloadHandler {
-    async fn serve(&mut self, addr: std::net::SocketAddrV4) {
-        todo!()
-    }
-}
+// #[async_trait]
+// pub trait RequestServer: PayloadHandler {
+//     async fn serve(&mut self, addr: std::net::SocketAddrV4) {
+//         todo!()
+//     }
+// }
 
-impl<T> RequestServer for T where T: PayloadHandler {}
+// impl<T> RequestServer for T where T: PayloadHandler {}
 
 /// This macro implements [`PayloadHandler`] with a specified number of routes.
 ///
@@ -204,6 +204,134 @@ macro_rules! payload_handler {
             }
         }
     };
+}
+
+/// Types that implement this trait can be plugged into [`Dispatcher`].
+///
+/// All methods are associated methods; no `self` is required.
+#[async_trait]
+pub trait TransmissionProtocol {
+    /// Send bytes to the remote. Any fault-tolerant logic should be implemented here.
+    async fn send_bytes<A>(
+        sock: &UdpSocket,
+        target: A,
+        payload: &[u8],
+        timeout: Duration,
+        retries: u8,
+    ) -> io::Result<usize>
+    where
+        A: ToSocketAddrs + std::marker::Send + std::marker::Sync;
+
+    /// Send an acknowledgement to the sender.
+    ///
+    /// If this method is not overridden, it is a no-op.
+    async fn send_ack<A>(_sock: &UdpSocket, _target: A, _payload: &[u8]) -> io::Result<()>
+    where
+        A: ToSocketAddrs + std::marker::Send + std::marker::Sync,
+    {
+        Ok(())
+    }
+}
+
+/// This protocol ensures that every sent packet from the source must be acknowledged by the sink.
+/// Timeouts and retries are fully implmented.
+#[derive(Clone, Debug)]
+pub struct RequestAckProto;
+
+#[async_trait]
+impl TransmissionProtocol for RequestAckProto {
+    async fn send_bytes<A>(
+        sock: &UdpSocket,
+        target: A,
+        payload: &[u8],
+        timeout: Duration,
+        mut retries: u8,
+    ) -> io::Result<usize>
+    where
+        A: ToSocketAddrs + std::marker::Send + std::marker::Sync,
+    {
+        let mut res: io::Result<usize> = Err(io::Error::new(
+            io::ErrorKind::TimedOut,
+            "connection timed out",
+        ));
+
+        while retries != 0 {
+            log::debug!("sending data to target");
+            let send_size = sock.send_to(payload, &target).await?;
+            let mut buf = [0_u8; 100];
+
+            tokio::select! {
+                biased;
+
+                recv_res = async {
+                    sock.recv(&mut buf).await
+                }.fuse() => {
+                    log::debug!("response received from target");
+
+                    let recv_size = recv_res?;
+                    let slice = &buf[..recv_size];
+
+                    let de: MiddlewareData = deserialize_primary(slice).unwrap();
+                    let hash = if let MiddlewareData::Ack(h) = de {
+                        h
+                    } else {
+                        res = Err(io::Error::new(io::ErrorKind::InvalidData, "expected Ack"));
+                        break;
+                    };
+
+                    if hash == hash_primary(&payload) {
+                        res = Ok(send_size);
+                    } else {
+                        res = Err(io::Error::new(io::ErrorKind::InvalidData, "Ack does not match"));
+                    }
+
+                    break;
+                },
+                _ = async {
+                    tokio::time::sleep(timeout).await;
+                }.fuse() => {
+                    retries -= 1;
+                    log::debug!("response timed out. retries remaining: {}", retries);
+
+                    continue;
+                }
+            }
+        }
+
+        res
+    }
+
+    async fn send_ack<A>(sock: &UdpSocket, target: A, payload: &[u8]) -> io::Result<()>
+    where
+        A: ToSocketAddrs + std::marker::Send + std::marker::Sync,
+    {
+        let ack = MiddlewareData::Ack(hash_primary(&payload));
+        let ack_bytes = serialize_primary(&ack).expect("serialization should not fail");
+
+        sock.send_to(&ack_bytes, target).await?;
+
+        Ok(())
+    }
+}
+
+/// UDP-like protocol, packets are sent to the destination without checking if they have been received.
+#[derive(Clone, Debug)]
+pub struct SimpleProto;
+
+#[async_trait]
+impl TransmissionProtocol for SimpleProto {
+    async fn send_bytes<A>(
+        sock: &UdpSocket,
+        target: A,
+        payload: &[u8],
+        timeout: Duration,
+        mut retries: u8,
+    ) -> io::Result<usize>
+    where
+        A: ToSocketAddrs + std::marker::Send + std::marker::Sync,
+    {
+        Ok(0)
+    }
 }
 
 /// The hash method used for verifying the integrity of data

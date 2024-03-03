@@ -5,13 +5,13 @@ use crate::{
     ser_de, RemotelyInvocable,
 };
 use std::{
-    io,
+    io, marker,
     net::{Ipv4Addr, SocketAddrV4},
     time::Duration,
 };
 use tokio::net::UdpSocket;
 
-use super::InvokeError;
+use super::{InvokeError, TransmissionProtocol};
 
 /// The context manager for the client.
 ///
@@ -20,7 +20,10 @@ use super::InvokeError;
 ///
 /// Integrity checks, validation, etc. are performed here.
 #[derive(Debug, Clone, Copy)]
-pub struct ContextManager {
+pub struct ContextManager<T>
+where
+    T: TransmissionProtocol,
+{
     /// The client's IP
     source_ip: Ipv4Addr,
     /// The server's IP
@@ -31,9 +34,14 @@ pub struct ContextManager {
 
     /// Number of retries
     retries: u8,
+
+    protocol: marker::PhantomData<T>,
 }
 
-impl ContextManager {
+impl<T> ContextManager<T>
+where
+    T: TransmissionProtocol,
+{
     /// Timeout for sending requests to the remote
 
     /// Create a new context manager, along with a target IP and port.
@@ -44,12 +52,14 @@ impl ContextManager {
         target: SocketAddrV4,
         timeout: Duration,
         retries: u8,
+        _protocol: T,
     ) -> std::io::Result<Self> {
         let s = Self {
             source_ip: source,
             target_ip: target,
             timeout,
             retries,
+            protocol: marker::PhantomData,
         };
 
         let sock = s.generate_socket().await?;
@@ -61,7 +71,7 @@ impl ContextManager {
 
         let payload = MiddlewareData::Ping;
 
-        send_timeout(
+        T::send_bytes(
             &sock,
             target,
             &super::serialize_primary(&payload).unwrap(),
@@ -74,7 +84,7 @@ impl ContextManager {
         let size = sock.recv(&mut buf).await?;
         let copy = &buf[..size];
 
-        send_ack(&sock, target, copy).await?;
+        T::send_ack(&sock, target, copy).await?;
 
         let resp: MiddlewareData = super::deserialize_primary(copy).unwrap();
 
@@ -107,7 +117,7 @@ impl ContextManager {
         let middleware_payload = MiddlewareData::Payload(data);
         let serialized_payload = super::serialize_primary(&middleware_payload).unwrap();
 
-        let size = send_timeout(
+        let size = T::send_bytes(
             &source,
             self.target_ip,
             &serialized_payload,
@@ -126,7 +136,7 @@ impl ContextManager {
             .map_err(|_| InvokeError::DataTransmissionFailed)?;
 
         // ack back to remote
-        send_ack(&source, self.target_ip, &recv_buf[..num_bytes])
+        T::send_ack(&source, self.target_ip, &recv_buf[..num_bytes])
             .await
             .map_err(|_| InvokeError::DataTransmissionFailed)?;
 
