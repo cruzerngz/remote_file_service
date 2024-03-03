@@ -3,9 +3,7 @@
 //! This module contains implementations of various dispatchers.
 #![allow(unused)]
 
-use crate::middleware::{
-    hash_primary, send_ack, send_timeout, MiddlewareData, ERROR_HEADER, MIDDLWARE_HEADER,
-};
+use crate::middleware::{hash_primary, MiddlewareData, ERROR_HEADER, MIDDLWARE_HEADER};
 use crate::ser_de::{self, ser};
 
 use super::{PayloadHandler, TransmissionProtocol};
@@ -52,7 +50,7 @@ pub struct FaultyDispatcher<H: Debug + PayloadHandler> {
 impl<H, T> Dispatcher<H, T>
 where
     H: Debug + PayloadHandler,
-    T: TransmissionProtocol,
+    T: TransmissionProtocol + Debug,
 {
     /// Create a new dispatcher from the handler and a listening IP.
     ///
@@ -67,6 +65,8 @@ where
         let socket = UdpSocket::bind(addr)
             .await
             .expect("failed to bind to specified address");
+
+        log::debug!("dipatcher running on {:?}", protocol);
 
         Self {
             socket: Arc::new(socket),

@@ -1,9 +1,6 @@
 //! The client-side middleware module
 
-use crate::{
-    middleware::{send_ack, send_timeout, MiddlewareData, MIDDLWARE_HEADER},
-    ser_de, RemotelyInvocable,
-};
+use crate::{middleware::MiddlewareData, RemotelyInvocable};
 use std::{
     io, marker,
     net::{Ipv4Addr, SocketAddrV4},
@@ -172,16 +169,16 @@ where
         Ok(sock)
     }
 
-    /// Ping the remote and waits for a response
-    async fn ping_remote(&self) -> Result<(), InvokeError> {
-        let sock = self.connect_remote().await?;
+    // /// Ping the remote and waits for a response
+    //     async fn ping_remote(&self) -> Result<(), InvokeError> {
+    //         let sock = self.connect_remote().await?;
 
-        sock.send(
-            &ser_de::serialize_packed_with_header(&MiddlewareData::Ping, MIDDLWARE_HEADER).unwrap(),
-        )
-        .await
-        .unwrap();
+    //         sock.send(
+    //             &ser_de::serialize_packed_with_header(&MiddlewareData::Ping, MIDDLWARE_HEADER).unwrap(),
+    //         )
+    //         .await
+    //         .unwrap();
 
-        Ok(())
-    }
+    //         Ok(())
+    //     }
 }

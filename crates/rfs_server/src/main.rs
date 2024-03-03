@@ -11,7 +11,7 @@ use std::{
 // use rfs_core::middleware::{Dispatcher, RequestServer};
 
 use clap::Parser;
-use rfs::middleware::{Dispatcher, RequestAckProto};
+use rfs::middleware::{Dispatcher, RequestAckProto, SimpleProto};
 
 use crate::{args::ServerArgs, server::RfsServer};
 
@@ -31,7 +31,7 @@ async fn main() {
     let mut dispatcher = Dispatcher::new(
         addr,
         server,
-        RequestAckProto,
+        SimpleProto,
         args.request_timeout.into(),
         rfs::defaults::DEFAULT_RETRIES,
     )

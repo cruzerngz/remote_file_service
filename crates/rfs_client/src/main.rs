@@ -4,7 +4,6 @@ mod ui;
 use std::{
     io::{self, Write},
     net::SocketAddrV4,
-    time::Duration,
 };
 
 use args::ClientArgs;
@@ -13,12 +12,7 @@ use clap::Parser;
 use crossterm::event::{self, KeyCode, KeyEventKind};
 // use futures::{AsyncReadExt, AsyncWriteExt};
 use ratatui::{backend::CrosstermBackend, style::Stylize, widgets, Terminal};
-use rfs::{
-    interfaces::SimpleOpsClient,
-    middleware::{ContextManager, RequestAckProto},
-};
-// use rfs_core::middleware::ContextManager;
-// use rfs::{interfaces::*, middleware::ContextManager};
+use rfs::{interfaces::SimpleOpsClient, middleware::*};
 
 #[tokio::main]
 async fn main() -> io::Result<()> {
@@ -32,7 +26,7 @@ async fn main() -> io::Result<()> {
         SocketAddrV4::new(args.target, args.port),
         args.request_timeout.into(),
         args.num_retries,
-        RequestAckProto,
+        SimpleProto,
     )
     .await
     .unwrap();
