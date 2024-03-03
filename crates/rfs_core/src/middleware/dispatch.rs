@@ -6,7 +6,7 @@
 use crate::middleware::{hash_primary, MiddlewareData, ERROR_HEADER, MIDDLWARE_HEADER};
 use crate::ser_de::{self, ser};
 
-use super::{PayloadHandler, TransmissionProtocol};
+use super::{PayloadHandler, TransmissionProtocol, BYTE_BUF_SIZE};
 use std::collections::btree_map;
 use std::fmt::Debug;
 use std::hash::{DefaultHasher, Hash, Hasher};
@@ -15,8 +15,6 @@ use std::sync::Arc;
 use std::time::Duration;
 use std::{io, marker};
 use tokio::net::{ToSocketAddrs, UdpSocket};
-
-const BYTE_BUF_SIZE: usize = 65535;
 
 /// The dispatcher for remote invocations.
 ///
@@ -34,9 +32,10 @@ where
 
     /// Inner data structure that implements logic for remote interfaces
     handler: H,
-    /// Message passing protocol (transport layer???)
+    /// Message passing protocol. Acts as a transport layer.
+    ///
     /// We only need the trait associated methods, so a struct instance is not required.
-    protocol: marker::PhantomData<T>,
+    protocol: T,
 }
 
 /// A faulty dispatcher. That is, a dispatcher that occasionally drops requests and does not send a response.
@@ -50,7 +49,7 @@ pub struct FaultyDispatcher<H: Debug + PayloadHandler> {
 impl<H, T> Dispatcher<H, T>
 where
     H: Debug + PayloadHandler,
-    T: TransmissionProtocol + Debug,
+    T: TransmissionProtocol + Debug + std::marker::Send + std::marker::Sync,
 {
     /// Create a new dispatcher from the handler and a listening IP.
     ///
@@ -71,7 +70,7 @@ where
         Self {
             socket: Arc::new(socket),
             handler,
-            protocol: marker::PhantomData,
+            protocol,
             timeout,
             retries,
         }
@@ -103,7 +102,14 @@ where
                     // send an ack back
                     T::send_ack(&self.socket, addr, copy).await;
 
-                    let data: MiddlewareData = super::deserialize_primary(&buf).unwrap();
+                    let data: MiddlewareData = match super::deserialize_primary(&buf) {
+                        Ok(d) => d,
+                        Err(e) => {
+                            log::error!("deserialization failed: {:?}", e);
+
+                            continue;
+                        }
+                    };
 
                     let middlware_response = match data {
                         MiddlewareData::Ping => handle_ping().await,
@@ -149,37 +155,14 @@ where
             }
         }
     }
-
-    // /// Handle inter-middleware comms
-    // async fn handle_middleware_data(
-    //     &self,
-    //     middleware_data: &[u8],
-    //     reply_addr: SocketAddr,
-    // ) -> io::Result<()> {
-    //     let data: MiddlewareData =
-    //         ser_de::deserialize_packed_with_header(&middleware_data, MIDDLWARE_HEADER).unwrap();
-
-    //     log::debug!("middleware: {:?}", data);
-
-    //     let res = match data {
-    //         MiddlewareData::Ping => MiddlewareData::Ping,
-    //         _ => todo!(),
-    //     };
-
-    //     self.socket
-    //         .send_to(
-    //             &ser_de::serialize_packed_with_header(&res, MIDDLWARE_HEADER).unwrap(),
-    //             reply_addr,
-    //         )
-    //         .await?;
-    //     Ok(())
-    // }
 }
 
+/// Handle a ping request
 async fn handle_ping() -> MiddlewareData {
     MiddlewareData::Ping
 }
 
+/// Handle remote invocations
 async fn handle_payload<H: PayloadHandler>(handler: &mut H, payload: &[u8]) -> MiddlewareData {
     match handler.handle_payload(payload).await {
         Ok(res) => MiddlewareData::Payload(res),
@@ -187,6 +170,7 @@ async fn handle_payload<H: PayloadHandler>(handler: &mut H, payload: &[u8]) -> M
     }
 }
 
+/// Handle callbacks (not used atm)
 async fn handle_callback(call: &[u8]) -> MiddlewareData {
     todo!()
 }

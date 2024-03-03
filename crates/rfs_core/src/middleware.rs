@@ -31,6 +31,8 @@ const ERROR_HEADER: &[u8] = "ERROR_ERROR_ERROR_ERROR_HEADER".as_bytes();
 /// and the dispatcher.
 const MIDDLWARE_HEADER: &[u8] = "MIDDLEWARE_HEADER".as_bytes();
 
+const BYTE_BUF_SIZE: usize = 65535;
+
 /// Method invocation errors
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum InvokeError {
@@ -77,7 +79,10 @@ pub enum MiddlewareData {
     Error(InvokeError),
 
     /// An acknowledgement from either end that a message has been received.
-    /// The value sent
+    /// The value sent is arbitrary, but should be used in a way to
+    /// verify the success of a request.
+    ///
+    /// A hash of the bytes is transmitted back when using [RequestAckProto].
     Ack(u64),
 }
 
@@ -209,7 +214,7 @@ macro_rules! payload_handler {
 ///
 /// All methods are associated methods; no `self` is required.
 #[async_trait]
-pub trait TransmissionProtocol {
+pub trait TransmissionProtocol: core::marker::Send + core::marker::Sync {
     /// Send bytes to the remote. Any fault-tolerant logic should be implemented here.
     async fn send_bytes<A>(
         sock: &UdpSocket,
@@ -230,6 +235,34 @@ pub trait TransmissionProtocol {
         A: ToSocketAddrs + std::marker::Send + std::marker::Sync,
     {
         Ok(())
+    }
+
+    /// Send bytes to the remote and waits for a response.
+    ///
+    /// The default implmentation uses `send_bytes` and `send_ack` naively.
+    ///
+    /// If more advanced logic is required, this method should be overridden.
+    async fn send_with_response<A>(
+        sock: &UdpSocket,
+        target: A,
+        payload: &[u8],
+        timeout: Duration,
+        retries: u8,
+    ) -> io::Result<Vec<u8>>
+    where
+        A: ToSocketAddrs + Clone + std::marker::Send + std::marker::Sync,
+    {
+        let mut buf = [0_u8; BYTE_BUF_SIZE];
+
+        sock.connect(&target).await?;
+
+        let _ = Self::send_bytes(sock, &target, payload, timeout, retries).await?;
+        let num_bytes = sock.recv(&mut buf).await?;
+        let slice = &buf[..num_bytes];
+
+        Self::send_ack(sock, &target, slice).await?;
+
+        Ok(slice.to_vec())
     }
 }
 

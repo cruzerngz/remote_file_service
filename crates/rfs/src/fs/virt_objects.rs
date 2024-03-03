@@ -72,6 +72,8 @@ pub struct VirtPermissions {
     execute: (bool, bool, bool),
 }
 
+impl<T: TransmissionProtocol> Unpin for VirtFile<T> {}
+
 impl<T> VirtFile<T>
 where
     T: TransmissionProtocol,
@@ -79,9 +81,12 @@ where
     /// Create a new file on the remote.
     ///
     /// Attempts to mirror [std::fs::File::create]
-    pub async fn create<P: AsRef<Path>>(ctx: ContextManager<T>, path: P) -> std::io::Result<Self> {
+    pub async fn create<P: AsRef<Path>>(
+        mut ctx: ContextManager<T>,
+        path: P,
+    ) -> std::io::Result<Self> {
         let res = PrimitiveFsOpsClient::create(
-            &ctx,
+            &mut ctx,
             path.as_ref()
                 .to_str()
                 .and_then(|s| Some(s.to_string()))
@@ -132,14 +137,13 @@ where
     T: TransmissionProtocol,
 {
     fn poll_read(
-        self: std::pin::Pin<&mut Self>,
+        mut self: std::pin::Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
         buf: &mut [u8],
     ) -> std::task::Poll<std::io::Result<usize>> {
-        let mut read_bytes = Box::pin(PrimitiveFsOpsClient::read_bytes(
-            &self.ctx,
-            self.path_as_string(),
-        ));
+        let path = self.path_as_string();
+
+        let mut read_bytes = Box::pin(PrimitiveFsOpsClient::read_bytes(&mut self.ctx, path));
 
         match read_bytes.poll_unpin(cx) {
             std::task::Poll::Ready(res) => match res {
@@ -178,13 +182,15 @@ where
     T: TransmissionProtocol,
 {
     fn poll_write(
-        self: std::pin::Pin<&mut Self>,
+        mut self: std::pin::Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
         buf: &[u8],
     ) -> std::task::Poll<std::io::Result<usize>> {
+        let path = self.path_as_string();
+
         let mut task = Box::pin(PrimitiveFsOpsClient::write_append_bytes(
-            &self.ctx,
-            self.path_as_string(),
+            &mut self.ctx,
+            path,
             buf.to_vec(),
         ));
 

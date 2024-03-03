@@ -21,17 +21,16 @@ async fn main() -> io::Result<()> {
         .init();
 
     let args = ClientArgs::parse();
-    let manager = ContextManager::new(
+    let mut manager = ContextManager::new(
         args.listen_address,
         SocketAddrV4::new(args.target, args.port),
         args.request_timeout.into(),
         args.num_retries,
-        SimpleProto,
+        RequestAckProto,
     )
-    .await
-    .unwrap();
+    .await?;
 
-    let _ = SimpleOpsClient::say_hello(&manager, "new configurtation".to_string())
+    let _ = SimpleOpsClient::say_hello(&mut manager, "new configurtation".to_string())
         .await
         .unwrap();
 

@@ -2,7 +2,7 @@
 
 use crate::{middleware::MiddlewareData, RemotelyInvocable};
 use std::{
-    io, marker,
+    io,
     net::{Ipv4Addr, SocketAddrV4},
     time::Duration,
 };
@@ -32,12 +32,13 @@ where
     /// Number of retries
     retries: u8,
 
-    protocol: marker::PhantomData<T>,
+    #[allow(unused)]
+    protocol: T,
 }
 
 impl<T> ContextManager<T>
 where
-    T: TransmissionProtocol,
+    T: TransmissionProtocol + std::marker::Send + std::marker::Sync,
 {
     /// Timeout for sending requests to the remote
 
@@ -49,14 +50,14 @@ where
         target: SocketAddrV4,
         timeout: Duration,
         retries: u8,
-        _protocol: T,
+        protocol: T,
     ) -> std::io::Result<Self> {
         let s = Self {
             source_ip: source,
             target_ip: target,
             timeout,
             retries,
-            protocol: marker::PhantomData,
+            protocol,
         };
 
         let sock = s.generate_socket().await?;
@@ -64,11 +65,11 @@ where
 
         log::debug!("establishing initial conn with remote...");
         sock.connect(s.target_ip).await?;
-        log::debug!("connection established, establishing handshake...");
+        log::debug!("establishing handshake...");
 
         let payload = MiddlewareData::Ping;
 
-        T::send_bytes(
+        let resp = T::send_with_response(
             &sock,
             target,
             &super::serialize_primary(&payload).unwrap(),
@@ -77,13 +78,7 @@ where
         )
         .await?;
 
-        let mut buf = [0_u8; 100];
-        let size = sock.recv(&mut buf).await?;
-        let copy = &buf[..size];
-
-        T::send_ack(&sock, target, copy).await?;
-
-        let resp: MiddlewareData = super::deserialize_primary(copy).unwrap();
+        let resp: MiddlewareData = super::deserialize_primary(&resp).unwrap();
 
         match resp == payload {
             true => {
@@ -101,7 +96,7 @@ where
     }
 
     /// Send an invocation over the network, and returns the result.
-    pub async fn invoke<P: RemotelyInvocable>(&self, payload: P) -> Result<P, InvokeError> {
+    pub async fn invoke<P: RemotelyInvocable>(&mut self, payload: P) -> Result<P, InvokeError> {
         // send to server and wait for a reply
         let data = payload.invoke_bytes();
 
@@ -114,7 +109,7 @@ where
         let middleware_payload = MiddlewareData::Payload(data);
         let serialized_payload = super::serialize_primary(&middleware_payload).unwrap();
 
-        let size = T::send_bytes(
+        let resp = T::send_with_response(
             &source,
             self.target_ip,
             &serialized_payload,
@@ -124,21 +119,8 @@ where
         .await
         .map_err(|_| InvokeError::RequestTimedOut)?;
 
-        log::debug!("request sent: {} bytes", size);
-
-        let mut recv_buf = [0; 10_000];
-        let num_bytes = source
-            .recv(&mut recv_buf)
-            .await
-            .map_err(|_| InvokeError::DataTransmissionFailed)?;
-
-        // ack back to remote
-        T::send_ack(&source, self.target_ip, &recv_buf[..num_bytes])
-            .await
-            .map_err(|_| InvokeError::DataTransmissionFailed)?;
-
         let middleware_resp: MiddlewareData =
-            super::deserialize_primary(&recv_buf[..num_bytes]).unwrap();
+            super::deserialize_primary(&resp).map_err(|_| InvokeError::DeserializationFailed)?;
 
         match middleware_resp {
             MiddlewareData::Payload(p) => P::process_invocation(&p),
