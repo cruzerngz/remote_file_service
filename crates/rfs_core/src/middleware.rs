@@ -9,8 +9,10 @@ mod context_manager;
 mod dispatch;
 
 use futures::FutureExt;
+use std::collections::HashMap;
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::io;
+use std::net::SocketAddrV4;
 use std::sync::Arc;
 use std::time::Duration;
 use std::{fmt::Debug, net::Ipv4Addr};
@@ -520,6 +522,113 @@ fn io_to_invoke_err(err: io::Error) -> InvokeError {
         io::ErrorKind::OutOfMemory => todo!(),
         io::ErrorKind::Other => todo!(),
         _ => InvokeError::RequestTimedOut,
+    }
+}
+
+/// Basic socket provider impl, no socket reuse
+#[derive(Debug)]
+pub struct BasicSockProvider {
+    addr: Ipv4Addr,
+}
+
+#[async_trait]
+impl SocketProvider for BasicSockProvider {
+    fn from_addr(a: Ipv4Addr) -> Self {
+        Self { addr: a }
+    }
+
+    async fn new_bind_sock(&mut self) -> io::Result<Arc<UdpSocket>> {
+        Ok(Arc::new(
+            UdpSocket::bind(SocketAddrV4::new(self.addr, 0)).await?,
+        ))
+    }
+}
+
+/// Maintains an internal pool of bound sockets
+#[derive(Debug)]
+pub struct SocketPool {
+    addr: Ipv4Addr,
+
+    /// The boolean field indicates if the current socket is in use
+    sockets: HashMap<SocketAddrV4, (bool, Arc<UdpSocket>)>,
+}
+
+impl SocketPool {
+    async fn create_new_sock(&mut self) -> io::Result<UdpSocket> {
+        let sock = UdpSocket::bind(SocketAddrV4::new(self.addr, 0)).await?;
+
+        Ok(sock)
+    }
+
+    /// Create a new socket and inserts it into the pool with use condition `cond`.
+    async fn create_insert_new_sock(&mut self, in_use: bool) -> io::Result<Arc<UdpSocket>> {
+        let sock = Arc::new(self.create_new_sock().await?);
+
+        let a = match sock.local_addr()? {
+            std::net::SocketAddr::V4(a) => a,
+            std::net::SocketAddr::V6(_) => {
+                return Err(io::Error::new(
+                    io::ErrorKind::AddrNotAvailable,
+                    "IPv6 addresses are not supported",
+                ))
+            }
+        };
+
+        self.sockets.insert(a, (in_use, sock.clone()));
+
+        return Ok(sock);
+    }
+}
+
+#[async_trait]
+impl SocketProvider for SocketPool {
+    fn from_addr(a: Ipv4Addr) -> Self {
+        Self {
+            addr: a,
+            sockets: Default::default(),
+        }
+    }
+
+    async fn new_bind_sock(&mut self) -> io::Result<Arc<UdpSocket>> {
+        if self.sockets.len() == 0 {
+            return Ok(self.create_insert_new_sock(true).await?);
+        }
+
+        let unused_sock = self
+            .sockets
+            .iter()
+            .find_map(|(_, (in_use, sock))| match in_use {
+                true => None,
+                false => Some(sock.clone()),
+            });
+
+        match unused_sock {
+            Some(s) => Ok(s),
+            None => Ok(self.create_insert_new_sock(true).await?),
+        }
+    }
+
+    async fn free_sock(&mut self, s: Arc<UdpSocket>) -> io::Result<()> {
+        let addr = match s.local_addr()? {
+            std::net::SocketAddr::V4(a) => a,
+            std::net::SocketAddr::V6(_) => {
+                return Err(io::Error::new(
+                    io::ErrorKind::AddrNotAvailable,
+                    "IPv6 addresses are not supported",
+                ))
+            }
+        };
+
+        let entry = self.sockets.get_mut(&addr);
+
+        match entry {
+            Some((in_use, _)) => {
+                *in_use = false;
+                Ok(())
+            }
+            // we are ok with an entry not existing
+            None => Ok(()),
+        }
     }
 }
 
