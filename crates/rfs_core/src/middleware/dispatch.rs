@@ -121,7 +121,9 @@ where
                         MiddlewareData::Ack(h) => {
                             log::info!("stray ack: {}", h);
                             continue;
-                        }
+                        },
+
+                        _ => todo!()
                     };
 
                     let serialized_response =

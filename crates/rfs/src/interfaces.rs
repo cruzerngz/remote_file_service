@@ -90,6 +90,20 @@ pub trait CallbackOps {
     async fn register_file_update(path: String) -> bool;
 }
 
+/// Data streaming operations.
+///
+/// These methods should not be invoked directly!
+#[remote_interface]
+pub trait StreamingOps {
+    /// Signal to the remote that a file is going to be sent over the
+    /// network from the remote.
+    async fn initiate_remote_file_stream(path: String) -> bool;
+
+    /// Signal to the remote that a file is going to be sent over the
+    /// network by a client.
+    async fn initiate_client_file_stream(path: String) -> bool;
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -9,7 +9,10 @@ mod context_manager;
 mod dispatch;
 
 use futures::FutureExt;
+use std::collections::HashMap;
 use std::hash::{BuildHasher, DefaultHasher, Hash, Hasher, RandomState};
+use std::net::SocketAddrV4;
+use std::sync::Arc;
 use std::time::Duration;
 use std::{clone, io};
 use std::{fmt::Debug, net::Ipv4Addr};
@@ -79,6 +82,9 @@ pub enum MiddlewareData {
     ///
     /// A hash of the bytes is transmitted back when using [RequestAckProto].
     Ack(u64),
+
+    /// A size transmission. This can represent anything really.
+    Size(usize),
 }
 
 /// Handle middleware messages, either from the client or remote.
@@ -130,12 +136,24 @@ pub trait CallbackHandler {
     ) -> Result<Vec<u8>, InvokeError>;
 }
 
-/// This trait is used by the dispatcher to determine the address that the server has bound itself to.
+/// This trait is implemented for types that provide socket addresses to bind to.
 ///
-/// It
-pub trait Addressable {
-    /// Returns the address the server is bound to. The port number cannot be returned.
-    fn bind_address(&self) -> Ipv4Addr;
+/// Socket reuse logic can be implemented for certain types.
+#[async_trait]
+pub trait SocketProvider {
+    /// Construct an instance of `Self` from a given address
+    fn from_addr(a: Ipv4Addr) -> Self;
+
+    /// Creates a new socket address to bind to, or reuses an existing one.
+    async fn new_bind_sock(&mut self) -> io::Result<Arc<UdpSocket>>;
+
+    /// Free a socket address.
+    ///
+    /// In the default impl, this is a no-op
+    #[allow(unused_variables)]
+    async fn free_sock(&mut self, s: Arc<UdpSocket>) -> io::Result<()> {
+        Ok(())
+    }
 }
 
 /// Serve requests by binding to a port.
@@ -422,6 +440,112 @@ fn hash_primary<T: Hash>(item: &T) -> u64 {
     item.hash(&mut hasher);
 
     hasher.finish()
+}
+
+#[derive(Debug)]
+pub struct BasicSockProvider {
+    addr: Ipv4Addr,
+}
+
+#[async_trait]
+impl SocketProvider for BasicSockProvider {
+    fn from_addr(a: Ipv4Addr) -> Self {
+        Self { addr: a }
+    }
+
+    async fn new_bind_sock(&mut self) -> io::Result<Arc<UdpSocket>> {
+        Ok(Arc::new(
+            UdpSocket::bind(SocketAddrV4::new(self.addr, 0)).await?,
+        ))
+    }
+}
+
+/// Maintains an internal pool of bound sockets
+#[derive(Debug)]
+pub struct SocketPool {
+    addr: Ipv4Addr,
+
+    /// The boolean field indicates if the current socket is in use
+    sockets: HashMap<SocketAddrV4, (bool, Arc<UdpSocket>)>,
+}
+
+impl SocketPool {
+    async fn create_new_sock(&mut self) -> io::Result<UdpSocket> {
+        let sock = UdpSocket::bind(SocketAddrV4::new(self.addr, 0)).await?;
+
+        Ok(sock)
+    }
+
+    /// Create a new socket and inserts it into the pool with use condition `cond`.
+    async fn create_insert_new_sock(&mut self, in_use: bool) -> io::Result<Arc<UdpSocket>> {
+        let sock = Arc::new(self.create_new_sock().await?);
+
+        let a = match sock.local_addr()? {
+            std::net::SocketAddr::V4(a) => a,
+            std::net::SocketAddr::V6(_) => {
+                return Err(io::Error::new(
+                    io::ErrorKind::AddrNotAvailable,
+                    "IPv6 addresses are not supported",
+                ))
+            }
+        };
+
+        self.sockets.insert(a, (in_use, sock.clone()));
+
+        return Ok(sock);
+    }
+}
+
+#[async_trait]
+impl SocketProvider for SocketPool {
+    fn from_addr(a: Ipv4Addr) -> Self {
+        Self {
+            addr: a,
+            sockets: Default::default(),
+        }
+    }
+
+    async fn new_bind_sock(&mut self) -> io::Result<Arc<UdpSocket>> {
+        if self.sockets.len() == 0 {
+            return Ok(self.create_insert_new_sock(true).await?);
+        }
+
+        let unused_sock = self
+            .sockets
+            .iter()
+            .find_map(|(_, (in_use, sock))| match in_use {
+                true => None,
+                false => Some(sock.clone()),
+            });
+
+        match unused_sock {
+            Some(s) => Ok(s),
+            None => Ok(self.create_insert_new_sock(true).await?),
+        }
+    }
+
+    async fn free_sock(&mut self, s: Arc<UdpSocket>) -> io::Result<()> {
+        let addr = match s.local_addr()? {
+            std::net::SocketAddr::V4(a) => a,
+            std::net::SocketAddr::V6(_) => {
+                return Err(io::Error::new(
+                    io::ErrorKind::AddrNotAvailable,
+                    "IPv6 addresses are not supported",
+                ))
+            }
+        };
+
+        let entry = self.sockets.get_mut(&addr);
+
+        match entry {
+            Some((in_use, _)) => {
+                *in_use = false;
+                Ok(())
+            }
+            // we are ok with an entry not existing
+            None => Ok(()),
+        }
+    }
 }
 
 #[cfg(test)]
