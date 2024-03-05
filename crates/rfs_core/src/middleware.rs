@@ -9,12 +9,10 @@ mod context_manager;
 mod dispatch;
 
 use futures::FutureExt;
-use std::collections::HashMap;
-use std::hash::{BuildHasher, DefaultHasher, Hash, Hasher, RandomState};
-use std::net::SocketAddrV4;
+use std::hash::{DefaultHasher, Hash, Hasher};
+use std::io;
 use std::sync::Arc;
 use std::time::Duration;
-use std::{clone, io};
 use std::{fmt::Debug, net::Ipv4Addr};
 use tokio::net::{ToSocketAddrs, UdpSocket};
 
@@ -57,6 +55,9 @@ pub enum InvokeError {
 
     /// Remote received an error
     RemoteReceiveError,
+
+    /// Invalid data
+    InvalidData,
 }
 
 /// Middleware-specific data sent between the context manager and the dispatcher
@@ -85,6 +86,8 @@ pub enum MiddlewareData {
 
     /// A size transmission. This can represent anything really.
     Size(usize),
+    /// A no-op.
+    NoOp,
 }
 
 /// Handle middleware messages, either from the client or remote.
@@ -376,19 +379,69 @@ impl<const FRAC: u32> TransmissionProtocol for FaultyRequestAckProto<FRAC> {
         target: A,
         payload: &[u8],
         timeout: Duration,
-        retries: u8,
+        mut retries: u8,
     ) -> io::Result<usize>
     where
         A: ToSocketAddrs + std::marker::Send + std::marker::Sync,
     {
-        // drop packets every now and then
-        match probability_frac(FRAC) {
-            true => {
-                log::error!("faulty packet transmission");
-                Ok(payload.len())
+        let mut res: io::Result<usize> = Err(io::Error::new(
+            io::ErrorKind::TimedOut,
+            "connection timed out",
+        ));
+
+        while retries != 0 {
+            log::debug!("sending data to target");
+
+            // occasionally err
+            let send_size = match probability_frac(FRAC) {
+                true => {
+                    log::error!("simulated packet drop");
+                    payload.len()
+                }
+                false => sock.send_to(payload, &target).await?,
+            };
+
+            let mut buf = [0_u8; 100];
+
+            tokio::select! {
+                biased;
+
+                recv_res = async {
+                    sock.recv(&mut buf).await
+                }.fuse() => {
+                    log::debug!("response received from target");
+
+                    let recv_size = recv_res?;
+                    let slice = &buf[..recv_size];
+
+                    let de: MiddlewareData = deserialize_primary(slice).unwrap();
+                    let hash = if let MiddlewareData::Ack(h) = de {
+                        h
+                    } else {
+                        res = Err(io::Error::new(io::ErrorKind::InvalidData, "expected Ack"));
+                        break;
+                    };
+
+                    if hash == hash_primary(&payload) {
+                        res = Ok(send_size);
+                    } else {
+                        res = Err(io::Error::new(io::ErrorKind::InvalidData, "Ack does not match"));
+                    }
+
+                    break;
+                },
+                _ = async {
+                    tokio::time::sleep(timeout).await;
+                }.fuse() => {
+                    retries -= 1;
+                    log::debug!("response timed out. retries remaining: {}", retries);
+
+                    continue;
+                }
             }
-            false => RequestAckProto::send_bytes(sock, target, payload, timeout, retries).await,
         }
+
+        res
     }
 
     async fn send_ack<A>(sock: &UdpSocket, target: A, payload: &[u8]) -> io::Result<()>
@@ -398,7 +451,7 @@ impl<const FRAC: u32> TransmissionProtocol for FaultyRequestAckProto<FRAC> {
         // drop packets every now and then
         match probability_frac(FRAC) {
             true => {
-                log::error!("faulty packet transmission");
+                log::error!("simulated ack drop");
                 Ok(())
             }
             false => RequestAckProto::send_ack(sock, target, payload).await,
@@ -442,109 +495,31 @@ fn hash_primary<T: Hash>(item: &T) -> u64 {
     hasher.finish()
 }
 
-#[derive(Debug)]
-pub struct BasicSockProvider {
-    addr: Ipv4Addr,
-}
+/// Transforms `io::Error` to `InvokeError`.
+fn io_to_invoke_err(err: io::Error) -> InvokeError {
+    log::error!("error kind: {:?}", err.kind());
 
-#[async_trait]
-impl SocketProvider for BasicSockProvider {
-    fn from_addr(a: Ipv4Addr) -> Self {
-        Self { addr: a }
-    }
-
-    async fn new_bind_sock(&mut self) -> io::Result<Arc<UdpSocket>> {
-        Ok(Arc::new(
-            UdpSocket::bind(SocketAddrV4::new(self.addr, 0)).await?,
-        ))
-    }
-}
-
-/// Maintains an internal pool of bound sockets
-#[derive(Debug)]
-pub struct SocketPool {
-    addr: Ipv4Addr,
-
-    /// The boolean field indicates if the current socket is in use
-    sockets: HashMap<SocketAddrV4, (bool, Arc<UdpSocket>)>,
-}
-
-impl SocketPool {
-    async fn create_new_sock(&mut self) -> io::Result<UdpSocket> {
-        let sock = UdpSocket::bind(SocketAddrV4::new(self.addr, 0)).await?;
-
-        Ok(sock)
-    }
-
-    /// Create a new socket and inserts it into the pool with use condition `cond`.
-    async fn create_insert_new_sock(&mut self, in_use: bool) -> io::Result<Arc<UdpSocket>> {
-        let sock = Arc::new(self.create_new_sock().await?);
-
-        let a = match sock.local_addr()? {
-            std::net::SocketAddr::V4(a) => a,
-            std::net::SocketAddr::V6(_) => {
-                return Err(io::Error::new(
-                    io::ErrorKind::AddrNotAvailable,
-                    "IPv6 addresses are not supported",
-                ))
-            }
-        };
-
-        self.sockets.insert(a, (in_use, sock.clone()));
-
-        return Ok(sock);
-    }
-}
-
-#[async_trait]
-impl SocketProvider for SocketPool {
-    fn from_addr(a: Ipv4Addr) -> Self {
-        Self {
-            addr: a,
-            sockets: Default::default(),
-        }
-    }
-
-    async fn new_bind_sock(&mut self) -> io::Result<Arc<UdpSocket>> {
-        if self.sockets.len() == 0 {
-            return Ok(self.create_insert_new_sock(true).await?);
-        }
-
-        let unused_sock = self
-            .sockets
-            .iter()
-            .find_map(|(_, (in_use, sock))| match in_use {
-                true => None,
-                false => Some(sock.clone()),
-            });
-
-        match unused_sock {
-            Some(s) => Ok(s),
-            None => Ok(self.create_insert_new_sock(true).await?),
-        }
-    }
-
-    async fn free_sock(&mut self, s: Arc<UdpSocket>) -> io::Result<()> {
-        let addr = match s.local_addr()? {
-            std::net::SocketAddr::V4(a) => a,
-            std::net::SocketAddr::V6(_) => {
-                return Err(io::Error::new(
-                    io::ErrorKind::AddrNotAvailable,
-                    "IPv6 addresses are not supported",
-                ))
-            }
-        };
-
-        let entry = self.sockets.get_mut(&addr);
-
-        match entry {
-            Some((in_use, _)) => {
-                *in_use = false;
-                Ok(())
-            }
-            // we are ok with an entry not existing
-            None => Ok(()),
-        }
+    match err.kind() {
+        io::ErrorKind::NotFound => todo!(),
+        io::ErrorKind::PermissionDenied => todo!(),
+        io::ErrorKind::ConnectionRefused
+        | io::ErrorKind::ConnectionReset
+        | io::ErrorKind::ConnectionAborted
+        | io::ErrorKind::NotConnected
+        | io::ErrorKind::AddrInUse
+        | io::ErrorKind::AddrNotAvailable
+        | io::ErrorKind::BrokenPipe => InvokeError::DataTransmissionFailed,
+        io::ErrorKind::AlreadyExists => todo!(),
+        io::ErrorKind::WouldBlock => todo!(),
+        io::ErrorKind::InvalidInput | io::ErrorKind::InvalidData => InvokeError::InvalidData,
+        io::ErrorKind::TimedOut => InvokeError::RequestTimedOut,
+        io::ErrorKind::WriteZero => todo!(),
+        io::ErrorKind::Interrupted => todo!(),
+        io::ErrorKind::Unsupported => todo!(),
+        io::ErrorKind::UnexpectedEof => todo!(),
+        io::ErrorKind::OutOfMemory => todo!(),
+        io::ErrorKind::Other => todo!(),
+        _ => InvokeError::RequestTimedOut,
     }
 }
 

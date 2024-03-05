@@ -1,6 +1,9 @@
 //! The client-side middleware module
 
-use crate::{middleware::MiddlewareData, RemotelyInvocable};
+use crate::{
+    middleware::{io_to_invoke_err, MiddlewareData},
+    RemotelyInvocable,
+};
 use std::{
     io,
     net::{Ipv4Addr, SocketAddrV4},
@@ -117,7 +120,7 @@ where
             self.retries,
         )
         .await
-        .map_err(|_| InvokeError::RequestTimedOut)?;
+        .map_err(io_to_invoke_err)?;
 
         let middleware_resp: MiddlewareData =
             super::deserialize_primary(&resp).map_err(|_| InvokeError::DeserializationFailed)?;

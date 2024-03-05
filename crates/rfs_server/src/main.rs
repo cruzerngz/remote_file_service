@@ -8,8 +8,6 @@ use std::{
     str::FromStr,
 };
 
-// use rfs_core::middleware::{Dispatcher, RequestServer};
-
 use clap::Parser;
 use futures::FutureExt;
 use rfs::middleware::{Dispatcher, RequestAckProto, SimpleProto};
