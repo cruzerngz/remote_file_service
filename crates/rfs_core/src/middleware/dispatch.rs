@@ -57,7 +57,7 @@ where
             .await
             .expect("failed to bind to specified address");
 
-        log::debug!("dipatcher running on {:?}", protocol);
+        log::info!("dipatcher using {:?}", protocol);
 
         Self {
             socket: Arc::new(socket),

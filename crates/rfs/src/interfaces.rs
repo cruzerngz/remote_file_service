@@ -2,6 +2,7 @@
 //!
 //! All traits have [`remote_interface`] attribute and only contain async functions.
 
+use std::io;
 use std::path::PathBuf;
 
 use rfs_core::remote_interface;

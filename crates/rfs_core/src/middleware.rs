@@ -3,6 +3,7 @@
 //! over the network.
 //!
 
+mod blob_trx;
 mod callback;
 mod context_manager;
 mod dispatch;

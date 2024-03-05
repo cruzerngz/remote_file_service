@@ -1,4 +1,5 @@
-//! Virtual (remote) object definitions
+//! Virtual (remote) object and related definitions
+
 #![allow(unused)]
 use std::{
     fmt::Debug,
@@ -14,10 +15,20 @@ use serde::{Deserialize, Serialize};
 
 use crate::interfaces::PrimitiveFsOpsClient;
 
+/// Errors for virtual IO
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub enum VirtIOErr {
+    /// The
+    InvalidPath,
+}
+
 /// A file that resides over the network in the remote.
 ///
 /// This struct aims to duplicate some of the most common file operations
 /// available in [std::fs::File].
+///
+/// For simplicity, symlinks residing on the remote will not be treated as files
+/// and they will be ignored.
 #[derive(Clone, Debug)]
 pub struct VirtFile<T: TransmissionProtocol> {
     ctx: ContextManager<T>,
@@ -44,7 +55,13 @@ pub struct VirtOpenOptions<T: TransmissionProtocol> {
 ///
 /// This item can be a file, or a directory.
 #[derive(Clone, Debug)]
-pub struct VirtDirEntry;
+pub struct VirtDirEntry {
+    /// Converted from the `path()` on the remote,
+    /// because PathBuf does not implement serialize/deserialize.
+    ///
+    /// This path is relative to the remote's base path.
+    path: String,
+}
 
 /// Iterator over [VirtDirEntry] items.
 #[derive(Clone, Debug)]
@@ -124,11 +141,16 @@ where
     }
 
     /// Returns the virtual file path as a string
-    fn path_as_string(&self) -> String {
+    fn as_path(&self) -> String {
         self.path
             .to_str()
             .and_then(|s| Some(s.to_owned()))
             .unwrap_or_default()
+    }
+
+    /// Eagerly executes a read of the file contents, if any.
+    fn load_contents(&mut self) -> io::Result<usize> {
+        todo!()
     }
 }
 
@@ -141,7 +163,7 @@ where
         cx: &mut std::task::Context<'_>,
         buf: &mut [u8],
     ) -> std::task::Poll<std::io::Result<usize>> {
-        let path = self.path_as_string();
+        let path = self.as_path();
 
         let mut read_bytes = Box::pin(PrimitiveFsOpsClient::read_bytes(&mut self.ctx, path));
 
@@ -186,7 +208,7 @@ where
         cx: &mut std::task::Context<'_>,
         buf: &[u8],
     ) -> std::task::Poll<std::io::Result<usize>> {
-        let path = self.path_as_string();
+        let path = self.as_path();
 
         let mut task = Box::pin(PrimitiveFsOpsClient::write_append_bytes(
             &mut self.ctx,
@@ -321,7 +343,7 @@ impl VirtDirEntry {
 }
 
 mod testing {
-    use std::fs;
+    use std::{fs, path::PathBuf};
 
     fn test() {
         let stuff = fs::read_dir("path").unwrap();
@@ -329,5 +351,17 @@ mod testing {
         for item in stuff {
             let i = item.unwrap();
         }
+    }
+
+    #[test]
+    fn test_pathbuf_stuff() {
+        let mut p = PathBuf::new();
+        p.push("..");
+        p.push("..");
+
+        p.push("first_dir");
+        p.push("next_dir");
+
+        println!("{:?}", p.as_path());
     }
 }

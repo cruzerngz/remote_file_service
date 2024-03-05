@@ -19,7 +19,10 @@ use rfs::interfaces::*;
 #[derive(Debug)]
 pub struct RfsServer {
     /// Starting directory for the server.
-    pub home: PathBuf,
+    ///
+    /// The server has access to all files seen within this directory.
+    /// The server deos not have access to paths outside this directory.
+    pub base: PathBuf,
 }
 
 impl Default for RfsServer {
@@ -32,14 +35,30 @@ impl Default for RfsServer {
         );
 
         Self {
-            home: PathBuf::from(exe_dir),
+            base: PathBuf::from(exe_dir),
         }
     }
 }
 
 impl RfsServer {
-    pub fn from_path(p: PathBuf) -> Self {
-        Self { home: p }
+    pub fn from_path<P: AsRef<Path>>(p: P) -> Self {
+        Self {
+            base: p
+                .as_ref()
+                .to_path_buf()
+                .canonicalize()
+                .expect("path must be valid"),
+        }
+    }
+
+    /// Checks if a provided path contains prev-dir path segments `..`.
+    /// Paths are not resolved at the OS-level, as they might not exist yet.
+    ///
+    /// This prevents out-of-dir accesses, such as when the path is `../../some_path`.
+    fn contains_backdir<P: AsRef<Path>>(path: P) -> bool {
+        let pb = path.as_ref().to_path_buf();
+
+        pb.into_iter().any(|segment| segment == "..")
     }
 }
 
@@ -64,7 +83,7 @@ impl MutableFileOps for RfsServer {
 #[async_trait]
 impl PrimitiveFsOps for RfsServer {
     async fn read_bytes(&mut self, path: String) -> Vec<u8> {
-        let mut full_path = self.home.clone();
+        let mut full_path = self.base.clone();
         full_path.push(path);
 
         log::debug!("reading file: {:?}", full_path);
@@ -84,7 +103,7 @@ impl PrimitiveFsOps for RfsServer {
     }
 
     async fn write_bytes(&mut self, path: String, contents: Vec<u8>) -> bool {
-        let mut full_path = self.home.clone();
+        let mut full_path = self.base.clone();
         full_path.push(path);
 
         match fs::write(full_path, contents) {
@@ -94,7 +113,7 @@ impl PrimitiveFsOps for RfsServer {
     }
 
     async fn write_append_bytes(&mut self, path: String, bytes: Vec<u8>) -> usize {
-        let mut start = self.home.clone();
+        let mut start = self.base.clone();
         start.push(path);
 
         match OpenOptions::new().append(true).open(start) {
@@ -114,7 +133,7 @@ impl PrimitiveFsOps for RfsServer {
     }
 
     async fn create(&mut self, path: String) -> bool {
-        let mut start = self.home.clone();
+        let mut start = self.base.clone();
         start.push(path);
 
         log::debug!("creating file at {:?}", start);
@@ -237,3 +256,23 @@ payload_handler! {
 //         Err(InvokeError::HandlerNotFound)
 //     }
 // }
+
+#[cfg(test)]
+mod tests {
+
+    use super::*;
+
+    #[test]
+    fn test_contains_backdir() {
+        let server = RfsServer::from_path(".");
+        assert!(RfsServer::contains_backdir(PathBuf::from(
+            "../this/is/invalid"
+        )));
+        assert!(RfsServer::contains_backdir(PathBuf::from(
+            "this/../../is/also/invalid"
+        )));
+        assert!(!RfsServer::contains_backdir(PathBuf::from(
+            "./this/is/valid"
+        )));
+    }
+}
