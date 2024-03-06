@@ -236,8 +236,20 @@ macro_rules! payload_handler {
 /// Implementors can opt to send raw bytes as well.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum TransmissionPacket {
-    /// Data payload, with sequence number.
-    Data { seq: u64, data: Vec<u8> },
+    /// Data payload
+    Data {
+        /// sequence number
+        seq: u64,
+
+        /// Hash value of bytes
+        hash: u64,
+
+        #[serde(with = "serde_bytes")]
+        data: Vec<u8>,
+
+        /// Indicates if this is the last packet
+        last: bool,
+    },
 
     /// For receipients of this packet, switch transmissions to this new target
     SwitchToAddress(SocketAddrV4),
@@ -245,6 +257,9 @@ pub enum TransmissionPacket {
     /// An ack packet, along with a number.
     /// The meaning of the number sent within depends on the implementor of the protocol.
     Ack(u64),
+
+    /// Signals the completion of the transfer
+    Complete,
 }
 
 /// Types that implement this trait can be plugged into [`ContextManager`] and [`Dispatcher`].
@@ -285,6 +300,77 @@ pub struct RequestAckProto {
     // marker: marker::PhantomData<P>,
 }
 
+impl RequestAckProto {
+    /// Sends something repeatedly until a response is received.
+    /// The max payload this method can accept is 65507 bytes.
+    async fn send_and_recv<A: ToSocketAddrs>(
+        sock: &UdpSocket,
+        target: A,
+        payload: &[u8],
+        timeout: Duration,
+        mut retries: u8,
+    ) -> io::Result<(SocketAddrV4, Vec<u8>)> {
+        if payload.len() > 65507 {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "payload exceeds max UDP data size",
+            ));
+        }
+
+        loop {
+            let _ = sock.send_to(&payload, &target).await?;
+
+            // send the request until the remote acknowledges the update
+            // or when the connection times out
+            tokio::select! {
+                biased;
+
+                res = async {
+                    let mut buf = [0_u8; 65535];
+                    let s = sock.recv_from(&mut buf).await;
+
+                    s.and_then(|(size, addr)| {
+
+                        let bytes = &buf[..size];
+
+                        if size != payload.len() {
+                            Err(io::Error::new(io::ErrorKind::InvalidData, "data not sent completely"))
+                        } else  {
+                            let v4_addr = sockaddr_to_v4(addr)?;
+                            Ok((v4_addr, bytes.to_vec()))
+                        }
+                    })
+
+                }.fuse() => {
+                    match res {
+                        Ok((addr, d)) => {
+                            break Ok((addr, d))
+                        },
+                        Err(e) => {
+                            log::error!("{}", e);
+                            retries -= 1;
+                        },
+                    }
+                },
+
+                _ = async {
+                    tokio::time::sleep(timeout).await
+                }.fuse() => {
+
+                    log::error!("connection timed out. retries left: {}", retries);
+
+                    match retries {
+                        0 => break Err(io::Error::new(io::ErrorKind::TimedOut, "connection timed out while waiting for response")),
+                        _ => retries -= 1,
+                    }
+                    continue;
+                }
+
+            }
+        }
+    }
+}
+
 #[async_trait]
 impl TransmissionProtocol for RequestAckProto {
     async fn send_bytes<A>(
@@ -305,54 +391,90 @@ impl TransmissionProtocol for RequestAckProto {
         // first we will switch target sockets so that we don't block the main process
         // from receiving requests
 
-        loop {
+        let new_bind_addr = {
+            let a = sock.local_addr()?;
+            let mut addr = sockaddr_to_v4(a)?;
+
+            addr.set_port(0);
+
+            addr
+        };
+
+        // create a new socket and establish a new connecion
+        let tx_sock = {
             log::debug!("changing bind addresss");
 
-            break;
-        }
+            let new_sock = UdpSocket::bind(new_bind_addr).await?;
+            let ser_payload =
+                serialize_primary(&TransmissionPacket::SwitchToAddress(new_bind_addr))
+                    .expect("serialization must not fail");
 
-        while retries != 0 {
-            log::debug!("sending data to target");
-            let send_size = sock.send_to(payload, &target).await?;
-            let mut buf = [0_u8; 100];
+            // get the new remote address
+            let remote_addr = loop {
+                let (_, data) =
+                    Self::send_and_recv(&new_sock, &target, &ser_payload, timeout, retries)
+                        .await?;
 
-            tokio::select! {
-                biased;
+                let recv_packet: TransmissionPacket = deserialize_primary(&data).map_err(|_| {
+                    io::Error::new(io::ErrorKind::InvalidData, "deserialization failed")
+                })?;
 
-                recv_res = async {
-                    sock.recv(&mut buf).await
-                }.fuse() => {
-                    log::debug!("response received from target");
-
-                    let recv_size = recv_res?;
-                    let slice = &buf[..recv_size];
-
-                    let de: TransmissionPacket = deserialize_primary(slice).unwrap();
-                    let hash = if let TransmissionPacket::Ack(h) = de {
-                        h
-                    } else {
-                        res = Err(io::Error::new(io::ErrorKind::InvalidData, "expected Ack"));
-                        break;
-                    };
-
-                    if hash == hash_primary(&payload) {
-                        res = Ok(send_size);
-                    } else {
-                        res = Err(io::Error::new(io::ErrorKind::InvalidData, "Ack does not match"));
-                    }
-
-                    break;
-                },
-                _ = async {
-                    tokio::time::sleep(timeout).await;
-                }.fuse() => {
-                    retries -= 1;
-                    log::debug!("response timed out. retries remaining: {}", retries);
-
-                    continue;
+                if let TransmissionPacket::SwitchToAddress(a) = recv_packet {
+                    break a;
                 }
-            }
+            };
+
+            new_sock.connect(remote_addr).await?;
+            new_sock
+        };
+
+        // we'll send a reasonably large amount of data in each go
+        for (seq_num, chunk) in payload.chunks(51_200).enumerate() {
+
         }
+
+        // while retries != 0 {
+        //     log::debug!("sending data to target");
+        //     let send_size = sock.send_to(payload, &target).await?;
+        //     let mut buf = [0_u8; 100];
+
+        //     tokio::select! {
+        //         biased;
+
+        //         recv_res = async {
+        //             sock.recv(&mut buf).await
+        //         }.fuse() => {
+        //             log::debug!("response received from target");
+
+        //             let recv_size = recv_res?;
+        //             let slice = &buf[..recv_size];
+
+        //             let de: TransmissionPacket = deserialize_primary(slice).unwrap();
+        //             let hash = if let TransmissionPacket::Ack(h) = de {
+        //                 h
+        //             } else {
+        //                 res = Err(io::Error::new(io::ErrorKind::InvalidData, "expected Ack"));
+        //                 break;
+        //             };
+
+        //             if hash == hash_primary(&payload) {
+        //                 res = Ok(send_size);
+        //             } else {
+        //                 res = Err(io::Error::new(io::ErrorKind::InvalidData, "Ack does not match"));
+        //             }
+
+        //             break;
+        //         },
+        //         _ = async {
+        //             tokio::time::sleep(timeout).await;
+        //         }.fuse() => {
+        //             retries -= 1;
+        //             log::debug!("response timed out. retries remaining: {}", retries);
+
+        //             continue;
+        //         }
+        //     }
+        // }
 
         res
     }

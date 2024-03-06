@@ -254,6 +254,7 @@ mod tests {
 
     use super::*;
     use serde::{Deserialize, Serialize};
+    use tests::byte_packer::pack_bytes;
 
     #[derive(Debug, Serialize, Deserialize, PartialEq)]
     struct Traditional {
@@ -352,8 +353,12 @@ mod tests {
         let ser = serialize_packed(&input).unwrap();
         println!("serialized: {} - {:?}", ser.len(), ser);
 
+        // pack the bytes again. this should have no effect on the underlying data.
+        let multi_packed = pack_bytes(&ser);
+
         println!("{:?}", std::str::from_utf8(&ser));
-        let des: T = deserialize_packed(&ser).unwrap();
+        let des: T = deserialize_packed(&multi_packed).unwrap();
+
 
         println!("{:?}", des);
 
