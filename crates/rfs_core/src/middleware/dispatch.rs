@@ -75,12 +75,12 @@ where
         loop {
             // buf.clear();
 
-            match self.socket.recv_from(&mut buf).await {
-                Ok((bytes, addr)) => {
-                    log::debug!("received {} bytes from {}", bytes, addr);
+            match T::recv_bytes(&self.socket).await {
+                Ok((addr, bytes)) => {
+                    log::debug!("received {} bytes from {}", bytes.len(), addr);
 
                     // connection packets have zero length
-                    if bytes == 0 {
+                    if bytes.len() == 0 {
                         continue;
                     }
 
@@ -88,11 +88,8 @@ where
                     // let header = buf.iter().take(20).map(|num| *num).collect::<Vec<_>>();
                     // log::debug!("packet header {:?}", std::str::from_utf8(&header));
 
-                    let copy = &buf[..bytes];
-                    log::debug!("packet: {:?}", copy);
-
                     // send an ack back
-                    T::send_ack(&self.socket, addr, copy).await;
+                    // T::send_ack(&self.socket, addr, copy).await;
 
                     let data: MiddlewareData = match super::deserialize_primary(&buf) {
                         Ok(d) => d,
@@ -121,9 +118,9 @@ where
                         MiddlewareData::Ack(h) => {
                             log::info!("stray ack: {}", h);
                             continue;
-                        },
+                        }
 
-                        _ => todo!()
+                        _ => todo!(),
                     };
 
                     let serialized_response =

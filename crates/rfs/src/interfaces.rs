@@ -3,6 +3,7 @@
 //! All traits have [`remote_interface`] attribute and only contain async functions.
 
 use std::io;
+use std::net::SocketAddrV4;
 use std::path::PathBuf;
 
 use rfs_core::remote_interface;
@@ -95,13 +96,16 @@ pub trait CallbackOps {
 /// These methods should not be invoked directly!
 #[remote_interface]
 pub trait StreamingOps {
-    /// Signal to the remote that a file is going to be sent over the
-    /// network from the remote.
-    async fn initiate_remote_file_stream(path: String) -> bool;
+    /// Signal to the remote to open a blob transmitter and return the network address.
+    ///
+    /// The path to the file is expected to be valid.
+    async fn open_blob_file_tx(path: String) -> SocketAddrV4;
 
-    /// Signal to the remote that a file is going to be sent over the
-    /// network by a client.
-    async fn initiate_client_file_stream(path: String) -> bool;
+    /// Signal to the remote to open a blob receiver and return the network address.
+    ///
+    /// The path to the file may or may not be valid.
+    /// File contents can be overridden or appended by setting `overwrite` to `true` or `false`.
+    async fn open_blob_file_rx(path: String, overwrite: bool) -> SocketAddrV4;
 }
 
 #[cfg(test)]
@@ -160,5 +164,10 @@ mod tests {
             SimpleOpsSayHello,
             SimpleOpsComputeFib,
         }
+    }
+
+    #[test]
+    fn test_method_signature_collision_streaming_ops() {
+        check_signature_collision! {StreamingOpsOpenBlobFileRx, StreamingOpsOpenBlobFileTx,}
     }
 }

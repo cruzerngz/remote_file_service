@@ -1,9 +1,6 @@
 //! The client-side middleware module
 
-use crate::{
-    middleware::{io_to_invoke_err, MiddlewareData},
-    RemotelyInvocable,
-};
+use crate::{middleware::MiddlewareData, RemotelyInvocable};
 use std::{
     io,
     net::{Ipv4Addr, SocketAddrV4},
@@ -30,10 +27,10 @@ where
     target_ip: SocketAddrV4,
 
     /// Request timeout
-    timeout: Duration,
+    pub(super) timeout: Duration,
 
     /// Number of retries
-    retries: u8,
+    pub(super) retries: u8,
 
     #[allow(unused)]
     protocol: T,
@@ -72,7 +69,7 @@ where
 
         let payload = MiddlewareData::Ping;
 
-        let resp = T::send_with_response(
+        let resp = T::send_bytes(
             &sock,
             target,
             &super::serialize_primary(&payload).unwrap(),
@@ -81,7 +78,9 @@ where
         )
         .await?;
 
-        let resp: MiddlewareData = super::deserialize_primary(&resp).unwrap();
+        let (addr, data) = T::recv_bytes(&sock).await?;
+
+        let resp: MiddlewareData = super::deserialize_primary(&data).unwrap();
 
         match resp == payload {
             true => {
@@ -112,7 +111,7 @@ where
         let middleware_payload = MiddlewareData::Payload(data);
         let serialized_payload = super::serialize_primary(&middleware_payload).unwrap();
 
-        let resp = T::send_with_response(
+        let _resp = T::send_bytes(
             &source,
             self.target_ip,
             &serialized_payload,
@@ -120,7 +119,12 @@ where
             self.retries,
         )
         .await
-        .map_err(io_to_invoke_err)?;
+        .map_err(|e| <InvokeError>::from(e))?;
+
+        let (addr, resp) = T::recv_bytes(&source).await?;
+
+        // response shoud come from the same IP
+        assert_eq!(self.target_ip, addr);
 
         let middleware_resp: MiddlewareData =
             super::deserialize_primary(&resp).map_err(|_| InvokeError::DeserializationFailed)?;

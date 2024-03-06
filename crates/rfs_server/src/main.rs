@@ -30,7 +30,7 @@ async fn main() {
     let mut dispatcher = Dispatcher::new(
         addr,
         server,
-        RequestAckProto,
+        SimpleProto,
         args.request_timeout.into(),
         rfs::defaults::DEFAULT_RETRIES,
     )

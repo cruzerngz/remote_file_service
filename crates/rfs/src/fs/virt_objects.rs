@@ -3,7 +3,7 @@
 #![allow(unused)]
 use std::{
     fmt::Debug,
-    fs::FileTimes,
+    fs::{self, FileTimes},
     io::{self, Read},
     path::{Path, PathBuf},
     time::SystemTime,
@@ -34,6 +34,9 @@ pub struct VirtFile<T: TransmissionProtocol> {
     ctx: ContextManager<T>,
     path: PathBuf,
 
+    /// Local metadata. May differ from the remote
+    metadata_local: VirtMetadata,
+
     /// The local byte buffer of the file
     local_buf: Vec<u8>,
 }
@@ -61,6 +64,9 @@ pub struct VirtDirEntry {
     ///
     /// This path is relative to the remote's base path.
     path: String,
+
+    /// Marker for if the entry is for a file or directory
+    file: bool,
 }
 
 /// Iterator over [VirtDirEntry] items.
@@ -73,10 +79,10 @@ pub struct VirtReadDir {
 #[derive(Clone, Debug)]
 pub struct VirtMetadata {
     /// Last file access time
-    accessed: SystemTime,
+    accessed: Option<SystemTime>,
 
     /// Last file mutation time
-    modified: SystemTime,
+    modified: Option<SystemTime>,
 
     permissions: VirtPermissions,
 }
@@ -121,6 +127,7 @@ where
 
         Ok(Self {
             ctx,
+            metadata_local: todo!(),
             path: PathBuf::from(path.as_ref()),
             local_buf: Default::default(),
         })
@@ -339,6 +346,33 @@ impl VirtDirEntry {
 
     pub fn metadata(&self) -> VirtMetadata {
         todo!()
+    }
+}
+
+impl From<fs::Metadata> for VirtMetadata {
+    fn from(value: fs::Metadata) -> Self {
+        Self {
+            accessed: value.accessed().ok(),
+            modified: value.modified().ok(),
+            permissions: value.permissions().into(),
+        }
+    }
+}
+
+impl From<fs::Permissions> for VirtPermissions {
+    fn from(value: fs::Permissions) -> Self {
+        match value.readonly() {
+            true => Self {
+                read: (true, true, true),
+                write: Default::default(),
+                execute: Default::default(),
+            },
+            false => Self {
+                read: Default::default(),
+                write: Default::default(),
+                execute: Default::default(),
+            },
+        }
     }
 }
 

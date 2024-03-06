@@ -11,11 +11,11 @@ mod dispatch;
 use futures::FutureExt;
 use std::collections::HashMap;
 use std::hash::{DefaultHasher, Hash, Hasher};
-use std::io;
-use std::net::SocketAddrV4;
+use std::net::{SocketAddr, SocketAddrV4};
 use std::sync::Arc;
 use std::time::Duration;
 use std::{fmt::Debug, net::Ipv4Addr};
+use std::{io, marker};
 use tokio::net::{ToSocketAddrs, UdpSocket};
 
 use async_trait::async_trait;
@@ -145,7 +145,7 @@ pub trait CallbackHandler {
 ///
 /// Socket reuse logic can be implemented for certain types.
 #[async_trait]
-pub trait SocketProvider {
+pub trait SocketProvider: core::marker::Send + core::marker::Sync {
     /// Construct an instance of `Self` from a given address
     fn from_addr(a: Ipv4Addr) -> Self;
 
@@ -228,6 +228,25 @@ macro_rules! payload_handler {
     };
 }
 
+/// Recommended payload to be sent between implementors of [`TransmissionProtocol`].
+///
+/// There is no requirement to use this data structure, or all it's variants/fields.
+/// Each implementor is responsible for how data is transmitted.
+///
+/// Implementors can opt to send raw bytes as well.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub enum TransmissionPacket {
+    /// Data payload, with sequence number.
+    Data { seq: u64, data: Vec<u8> },
+
+    /// For receipients of this packet, switch transmissions to this new target
+    SwitchToAddress(SocketAddrV4),
+
+    /// An ack packet, along with a number.
+    /// The meaning of the number sent within depends on the implementor of the protocol.
+    Ack(u64),
+}
+
 /// Types that implement this trait can be plugged into [`ContextManager`] and [`Dispatcher`].
 ///
 /// All methods are associated methods; no `self` is required.
@@ -244,50 +263,27 @@ pub trait TransmissionProtocol: core::marker::Send + core::marker::Sync {
     where
         A: ToSocketAddrs + std::marker::Send + std::marker::Sync;
 
-    /// Send an acknowledgement to the sender.
-    ///
-    /// If this method is not overridden, it is a no-op.
-    #[allow(unused_variables)]
-    async fn send_ack<A>(sock: &UdpSocket, target: A, payload: &[u8]) -> io::Result<()>
-    where
-        A: ToSocketAddrs + std::marker::Send + std::marker::Sync,
-    {
-        Ok(())
-    }
-
-    /// Send bytes to the remote and waits for a response.
-    ///
-    /// The default implmentation uses `send_bytes` and `send_ack` naively.
-    ///
-    /// If more advanced logic is required, this method should be overridden.
-    async fn send_with_response<A>(
-        sock: &UdpSocket,
-        target: A,
-        payload: &[u8],
-        timeout: Duration,
-        retries: u8,
-    ) -> io::Result<Vec<u8>>
-    where
-        A: ToSocketAddrs + Clone + std::marker::Send + std::marker::Sync,
-    {
-        let mut buf = [0_u8; BYTE_BUF_SIZE];
-
-        sock.connect(&target).await?;
-
-        let _ = Self::send_bytes(sock, &target, payload, timeout, retries).await?;
-        let num_bytes = sock.recv(&mut buf).await?;
-        let slice = &buf[..num_bytes];
-
-        Self::send_ack(sock, &target, slice).await?;
-
-        Ok(slice.to_vec())
+    /// Wait for a UDP packet. Returns the packet source and data.
+    async fn recv_bytes(sock: &UdpSocket) -> io::Result<(SocketAddrV4, Vec<u8>)>;
+}
+/// Converts a socket address to a V4 one.
+/// V6 addresses will return an error.
+fn sockaddr_to_v4(addr: SocketAddr) -> io::Result<SocketAddrV4> {
+    match addr {
+        SocketAddr::V4(a) => Ok(a),
+        SocketAddr::V6(_) => Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "IPv6 addresses are not supported",
+        )),
     }
 }
 
 /// This protocol ensures that every sent packet from the source must be acknowledged by the sink.
 /// Timeouts and retries are fully implmented.
 #[derive(Clone, Debug)]
-pub struct RequestAckProto;
+pub struct RequestAckProto {
+    // marker: marker::PhantomData<P>,
+}
 
 #[async_trait]
 impl TransmissionProtocol for RequestAckProto {
@@ -306,6 +302,15 @@ impl TransmissionProtocol for RequestAckProto {
             "connection timed out",
         ));
 
+        // first we will switch target sockets so that we don't block the main process
+        // from receiving requests
+
+        loop {
+            log::debug!("changing bind addresss");
+
+            break;
+        }
+
         while retries != 0 {
             log::debug!("sending data to target");
             let send_size = sock.send_to(payload, &target).await?;
@@ -322,8 +327,8 @@ impl TransmissionProtocol for RequestAckProto {
                     let recv_size = recv_res?;
                     let slice = &buf[..recv_size];
 
-                    let de: MiddlewareData = deserialize_primary(slice).unwrap();
-                    let hash = if let MiddlewareData::Ack(h) = de {
+                    let de: TransmissionPacket = deserialize_primary(slice).unwrap();
+                    let hash = if let TransmissionPacket::Ack(h) = de {
                         h
                     } else {
                         res = Err(io::Error::new(io::ErrorKind::InvalidData, "expected Ack"));
@@ -352,16 +357,8 @@ impl TransmissionProtocol for RequestAckProto {
         res
     }
 
-    async fn send_ack<A>(sock: &UdpSocket, target: A, payload: &[u8]) -> io::Result<()>
-    where
-        A: ToSocketAddrs + std::marker::Send + std::marker::Sync,
-    {
-        let ack = MiddlewareData::Ack(hash_primary(&payload));
-        let ack_bytes = serialize_primary(&ack).expect("serialization should not fail");
-
-        sock.send_to(&ack_bytes, target).await?;
-
-        Ok(())
+    async fn recv_bytes(sock: &UdpSocket) -> io::Result<(SocketAddrV4, Vec<u8>)> {
+        todo!()
     }
 }
 
@@ -386,78 +383,70 @@ impl<const FRAC: u32> TransmissionProtocol for FaultyRequestAckProto<FRAC> {
     where
         A: ToSocketAddrs + std::marker::Send + std::marker::Sync,
     {
-        let mut res: io::Result<usize> = Err(io::Error::new(
-            io::ErrorKind::TimedOut,
-            "connection timed out",
-        ));
+        // let mut res: io::Result<usize> = Err(io::Error::new(
+        //     io::ErrorKind::TimedOut,
+        //     "connection timed out",
+        // ));
 
-        while retries != 0 {
-            log::debug!("sending data to target");
+        // while retries != 0 {
+        //     log::debug!("sending data to target");
 
-            // occasionally err
-            let send_size = match probability_frac(FRAC) {
-                true => {
-                    log::error!("simulated packet drop");
-                    payload.len()
-                }
-                false => sock.send_to(payload, &target).await?,
-            };
+        //     // occasionally err
+        //     let send_size = match probability_frac(FRAC) {
+        //         true => {
+        //             log::error!("simulated packet drop");
+        //             payload.len()
+        //         }
+        //         false => sock.send_to(payload, &target).await?,
+        //     };
 
-            let mut buf = [0_u8; 100];
+        //     let mut buf = [0_u8; 100];
 
-            tokio::select! {
-                biased;
+        //     tokio::select! {
+        //         biased;
 
-                recv_res = async {
-                    sock.recv(&mut buf).await
-                }.fuse() => {
-                    log::debug!("response received from target");
+        //         recv_res = async {
+        //             sock.recv(&mut buf).await
+        //         }.fuse() => {
+        //             log::debug!("response received from target");
 
-                    let recv_size = recv_res?;
-                    let slice = &buf[..recv_size];
+        //             let recv_size = recv_res?;
+        //             let slice = &buf[..recv_size];
 
-                    let de: MiddlewareData = deserialize_primary(slice).unwrap();
-                    let hash = if let MiddlewareData::Ack(h) = de {
-                        h
-                    } else {
-                        res = Err(io::Error::new(io::ErrorKind::InvalidData, "expected Ack"));
-                        break;
-                    };
+        //             let de: MiddlewareData = deserialize_primary(slice).unwrap();
+        //             let hash = if let MiddlewareData::Ack(h) = de {
+        //                 h
+        //             } else {
+        //                 res = Err(io::Error::new(io::ErrorKind::InvalidData, "expected Ack"));
+        //                 break;
+        //             };
 
-                    if hash == hash_primary(&payload) {
-                        res = Ok(send_size);
-                    } else {
-                        res = Err(io::Error::new(io::ErrorKind::InvalidData, "Ack does not match"));
-                    }
+        //             if hash == hash_primary(&payload) {
+        //                 res = Ok(send_size);
+        //             } else {
+        //                 res = Err(io::Error::new(io::ErrorKind::InvalidData, "Ack does not match"));
+        //             }
 
-                    break;
-                },
-                _ = async {
-                    tokio::time::sleep(timeout).await;
-                }.fuse() => {
-                    retries -= 1;
-                    log::debug!("response timed out. retries remaining: {}", retries);
+        //             break;
+        //         },
+        //         _ = async {
+        //             tokio::time::sleep(timeout).await;
+        //         }.fuse() => {
+        //             retries -= 1;
+        //             log::debug!("response timed out. retries remaining: {}", retries);
 
-                    continue;
-                }
-            }
-        }
+        //             continue;
+        //         }
+        //     }
+        // }
 
-        res
+        // res
+
+        todo!()
     }
 
-    async fn send_ack<A>(sock: &UdpSocket, target: A, payload: &[u8]) -> io::Result<()>
-    where
-        A: ToSocketAddrs + std::marker::Send + std::marker::Sync,
-    {
-        // drop packets every now and then
-        match probability_frac(FRAC) {
-            true => {
-                log::error!("simulated ack drop");
-                Ok(())
-            }
-            false => RequestAckProto::send_ack(sock, target, payload).await,
-        }
+    async fn recv_bytes(sock: &UdpSocket) -> io::Result<(SocketAddrV4, Vec<u8>)> {
+        todo!()
     }
 }
 
@@ -470,6 +459,8 @@ fn probability_frac(frac: u32) -> bool {
 }
 
 /// UDP-like protocol, packets are sent to the destination without checking if they have been received.
+///
+/// As this sends all data in a single UDP packet, the max payload size is `65507` bytes.
 #[derive(Clone, Debug)]
 pub struct SimpleProto;
 
@@ -487,6 +478,16 @@ impl TransmissionProtocol for SimpleProto {
     {
         sock.send_to(payload, target).await
     }
+
+    async fn recv_bytes(sock: &UdpSocket) -> io::Result<(SocketAddrV4, Vec<u8>)> {
+        let mut buf = [0_u8; 65535];
+
+        let (size, addr) = sock.recv_from(&mut buf).await?;
+
+        let addr = sockaddr_to_v4(addr)?;
+
+        Ok((addr, buf[..size].to_vec()))
+    }
 }
 
 /// The primary hash method used for verifying the integrity of data
@@ -497,31 +498,47 @@ fn hash_primary<T: Hash>(item: &T) -> u64 {
     hasher.finish()
 }
 
-/// Transforms `io::Error` to `InvokeError`.
-fn io_to_invoke_err(err: io::Error) -> InvokeError {
-    log::error!("error kind: {:?}", err.kind());
+impl From<io::Error> for InvokeError {
+    fn from(value: io::Error) -> Self {
+        log::error!("error kind: {:?}", value.kind());
 
-    match err.kind() {
-        io::ErrorKind::NotFound => todo!(),
-        io::ErrorKind::PermissionDenied => todo!(),
-        io::ErrorKind::ConnectionRefused
-        | io::ErrorKind::ConnectionReset
-        | io::ErrorKind::ConnectionAborted
-        | io::ErrorKind::NotConnected
-        | io::ErrorKind::AddrInUse
-        | io::ErrorKind::AddrNotAvailable
-        | io::ErrorKind::BrokenPipe => InvokeError::DataTransmissionFailed,
-        io::ErrorKind::AlreadyExists => todo!(),
-        io::ErrorKind::WouldBlock => todo!(),
-        io::ErrorKind::InvalidInput | io::ErrorKind::InvalidData => InvokeError::InvalidData,
-        io::ErrorKind::TimedOut => InvokeError::RequestTimedOut,
-        io::ErrorKind::WriteZero => todo!(),
-        io::ErrorKind::Interrupted => todo!(),
-        io::ErrorKind::Unsupported => todo!(),
-        io::ErrorKind::UnexpectedEof => todo!(),
-        io::ErrorKind::OutOfMemory => todo!(),
-        io::ErrorKind::Other => todo!(),
-        _ => InvokeError::RequestTimedOut,
+        match value.kind() {
+            io::ErrorKind::NotFound => todo!(),
+            io::ErrorKind::PermissionDenied => todo!(),
+            io::ErrorKind::ConnectionRefused
+            | io::ErrorKind::ConnectionReset
+            | io::ErrorKind::ConnectionAborted
+            | io::ErrorKind::NotConnected
+            | io::ErrorKind::AddrInUse
+            | io::ErrorKind::AddrNotAvailable
+            | io::ErrorKind::BrokenPipe => InvokeError::DataTransmissionFailed,
+            io::ErrorKind::AlreadyExists => todo!(),
+            io::ErrorKind::WouldBlock => todo!(),
+            io::ErrorKind::InvalidInput | io::ErrorKind::InvalidData => InvokeError::InvalidData,
+            io::ErrorKind::TimedOut => InvokeError::RequestTimedOut,
+            io::ErrorKind::WriteZero => todo!(),
+            io::ErrorKind::Interrupted => todo!(),
+            io::ErrorKind::Unsupported => todo!(),
+            io::ErrorKind::UnexpectedEof => todo!(),
+            io::ErrorKind::OutOfMemory => todo!(),
+            io::ErrorKind::Other => todo!(),
+            _ => InvokeError::RequestTimedOut,
+        }
+    }
+}
+
+impl From<InvokeError> for io::Error {
+    fn from(value: InvokeError) -> Self {
+        match value {
+            InvokeError::HandlerNotFound => todo!(),
+            InvokeError::SignatureNotMatched => todo!(),
+            InvokeError::RequestTimedOut => todo!(),
+            InvokeError::DeserializationFailed => todo!(),
+            InvokeError::RemoteConnectionFailed => todo!(),
+            InvokeError::DataTransmissionFailed => todo!(),
+            InvokeError::RemoteReceiveError => todo!(),
+            InvokeError::InvalidData => todo!(),
+        }
     }
 }
 
