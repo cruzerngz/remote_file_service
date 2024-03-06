@@ -13,7 +13,7 @@ pub mod defaults {
     /// The default port used by the remote
     pub const DEFAULT_PORT: u16 = 4013;
     /// Default timeout duration for request-responses
-    pub const DEFAULT_TIMEOUT: &str = "1s";
+    pub const DEFAULT_TIMEOUT: &str = "250ms";
     /// Default number of retries
     pub const DEFAULT_RETRIES: u8 = 3;
 }

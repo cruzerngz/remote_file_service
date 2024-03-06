@@ -1,7 +1,7 @@
 //! This module contains the client and server side
 //! objects that transmit the contents of method invocations
 //! over the network.
-//!
+#![allow(unused)]
 
 mod blob_trx;
 mod callback;
@@ -25,8 +25,8 @@ pub use context_manager::*;
 pub use dispatch::*;
 
 // define the serde method here once for use by submodules
-use crate::ser_de::deserialize_packed as deserialize_primary;
 use crate::ser_de::serialize_packed as serialize_primary;
+use crate::ser_de::{deserialize_packed as deserialize_primary, ByteViewer};
 
 /// Max payload size
 const BYTE_BUF_SIZE: usize = 65535;
@@ -239,7 +239,7 @@ pub enum TransmissionPacket {
     /// Data payload
     Data {
         /// sequence number
-        seq: u64,
+        seq: u32,
 
         /// Hash value of bytes
         hash: u64,
@@ -296,11 +296,14 @@ fn sockaddr_to_v4(addr: SocketAddr) -> io::Result<SocketAddrV4> {
 /// This protocol ensures that every sent packet from the source must be acknowledged by the sink.
 /// Timeouts and retries are fully implmented.
 #[derive(Clone, Debug)]
-pub struct RequestAckProto {
+pub struct HandshakeProto {
     // marker: marker::PhantomData<P>,
 }
 
-impl RequestAckProto {
+impl HandshakeProto {
+    /// This is a conservative limit on the max packet size
+    const MAX_PACKET_PAYLOAD_SIZE: usize = 51_200;
+
     /// Sends something repeatedly until a response is received.
     /// The max payload this method can accept is 65507 bytes.
     async fn send_and_recv<A: ToSocketAddrs>(
@@ -310,7 +313,7 @@ impl RequestAckProto {
         timeout: Duration,
         mut retries: u8,
     ) -> io::Result<(SocketAddrV4, Vec<u8>)> {
-        if payload.len() > 65507 {
+        if payload.len() > 65_507 {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
                 "payload exceeds max UDP data size",
@@ -369,16 +372,148 @@ impl RequestAckProto {
             }
         }
     }
+
+    /// Sends a packet out with a given sequence number.
+    /// The same packet will be continuously sent until the receiver has acknowledged the sequence number
+    /// and sent a reply.
+    ///
+    /// The same restrictions apply for
+    ///
+    /// Retries apply for both sequence number.
+    async fn send_and_recv_sequence<A: ToSocketAddrs>(
+        sock: &UdpSocket,
+        sequence_number: u32,
+        last: bool,
+        target: A,
+        payload: &[u8],
+        timeout: Duration,
+        retries: u8,
+    ) -> io::Result<()> {
+        // Self::send_bytes(sock, target, payload, timeout, retries)
+
+        let mut outer_retries = retries;
+
+        loop {
+            if outer_retries == 0 {
+                break Err(io::Error::new(
+                    io::ErrorKind::TimedOut,
+                    "max retries exceeded",
+                ));
+            }
+
+            let hash = hash_primary(&payload);
+
+            let packet = TransmissionPacket::Data {
+                seq: sequence_number,
+                hash,
+                data: payload.to_vec(),
+                last,
+            };
+
+            let ser_packet = serialize_primary(&packet).expect("serialization must not fail");
+
+            let (_, resp) =
+                Self::send_and_recv(sock, &target, &ser_packet, timeout, retries).await?;
+
+            let payload: TransmissionPacket = deserialize_primary(&resp).map_err(|_| {
+                io::Error::new(io::ErrorKind::InvalidData, "deserialization failed")
+            })?;
+
+            match (last, payload) {
+                // return after ack
+                (false, TransmissionPacket::Ack(num)) => {
+                    match num as i32 - sequence_number as i32 {
+                        0 => (), // retry transmission
+                        1 => break Ok(()),
+                        other => {
+                            break Err(io::Error::new(
+                                io::ErrorKind::InvalidInput,
+                                format!(
+                                    "invalid sequence number. expected {}, got {}",
+                                    sequence_number + 1,
+                                    other
+                                ),
+                            ))
+                        }
+                    }
+                }
+
+                // last packet acknowledged, final ack
+                (true, TransmissionPacket::Complete) => {
+                    break Self::transmit_final_ack(sock, target, timeout, retries).await
+                }
+
+                _ => (),
+            }
+
+            outer_retries -= 1;
+        }
+    }
+
+    /// The final transmission in a request-ack cycle is special.
+    ///
+    /// This method implements the following logic:
+    /// - transmit the [`TransmissionPacket::Complete`] variant
+    /// - select: timeout to elapse or an incoming packet
+    ///
+    /// Handle each case
+    async fn transmit_final_ack<A: ToSocketAddrs>(
+        sock: &UdpSocket,
+        target: A,
+        timeout: Duration,
+        retries: u8,
+    ) -> io::Result<()> {
+        const ACK_PACKET: TransmissionPacket = TransmissionPacket::Complete;
+        let ack_payload = serialize_primary(&ACK_PACKET).expect("serialization must not fail");
+
+        loop {
+            log::debug!("transmitting final packet");
+            let _ = sock.send_to(&ack_payload, &target).await?;
+
+            tokio::select! {
+
+                // if the timeout elapses and no further response is received, the packet is assumed to
+                // be received
+                _ = async {
+                    tokio::time::sleep(timeout).await
+                }.fuse() => {
+                    break Ok(())
+                }
+
+                // if a `complete` packet is received first, send the packets again
+                res = async {
+                    let mut buf = [0_u8; 100];
+                    let res = sock.recv_from(&mut buf).await;
+
+                    res.and_then(|(size, _)| {
+                        Ok(buf[..size].to_vec())
+                    })
+
+                }.fuse() => {
+                    log::error!("received duplicate");
+
+                    let data = res?;
+                    let packet = deserialize_primary(&data).map_err(|_| io::Error::new (io::ErrorKind::InvalidData, "deserialization failed"))?;
+
+                    match packet {
+                        TransmissionPacket::Complete => (),
+                        other => break Err(io::Error::new(io::ErrorKind::InvalidInput, format!("expected a transmission complete packet, got {:?}", other)))
+                    }
+                }
+
+            }
+        }
+    }
 }
 
 #[async_trait]
-impl TransmissionProtocol for RequestAckProto {
+impl TransmissionProtocol for HandshakeProto {
     async fn send_bytes<A>(
         sock: &UdpSocket,
         target: A,
         payload: &[u8],
         timeout: Duration,
-        mut retries: u8,
+        retries: u8,
     ) -> io::Result<usize>
     where
         A: ToSocketAddrs + std::marker::Send + std::marker::Sync,
@@ -412,8 +547,7 @@ impl TransmissionProtocol for RequestAckProto {
             // get the new remote address
             let remote_addr = loop {
                 let (_, data) =
-                    Self::send_and_recv(&new_sock, &target, &ser_payload, timeout, retries)
-                        .await?;
+                    Self::send_and_recv(&new_sock, &target, &ser_payload, timeout, retries).await?;
 
                 let recv_packet: TransmissionPacket = deserialize_primary(&data).map_err(|_| {
                     io::Error::new(io::ErrorKind::InvalidData, "deserialization failed")
@@ -428,55 +562,30 @@ impl TransmissionProtocol for RequestAckProto {
             new_sock
         };
 
-        // we'll send a reasonably large amount of data in each go
-        for (seq_num, chunk) in payload.chunks(51_200).enumerate() {
+        let total_chunks = payload.len().div_ceil(Self::MAX_PACKET_PAYLOAD_SIZE);
+        let mut curr_chunk = 0;
 
+        let mut payload_view = ByteViewer::from_slice(payload);
+
+        // all packets except last
+        // we'll send a reasonably large amount of data in each go
+        while payload_view.distance_to_end() >= Self::MAX_PACKET_PAYLOAD_SIZE {
+            let payload = payload_view.next_bytes(Self::MAX_PACKET_PAYLOAD_SIZE, true);
+            let last = curr_chunk == total_chunks - 1;
+
+            Self::send_and_recv_sequence(
+                &tx_sock,
+                curr_chunk as u32,
+                last,
+                &target,
+                payload,
+                timeout,
+                retries,
+            )
+            .await?;
         }
 
-        // while retries != 0 {
-        //     log::debug!("sending data to target");
-        //     let send_size = sock.send_to(payload, &target).await?;
-        //     let mut buf = [0_u8; 100];
-
-        //     tokio::select! {
-        //         biased;
-
-        //         recv_res = async {
-        //             sock.recv(&mut buf).await
-        //         }.fuse() => {
-        //             log::debug!("response received from target");
-
-        //             let recv_size = recv_res?;
-        //             let slice = &buf[..recv_size];
-
-        //             let de: TransmissionPacket = deserialize_primary(slice).unwrap();
-        //             let hash = if let TransmissionPacket::Ack(h) = de {
-        //                 h
-        //             } else {
-        //                 res = Err(io::Error::new(io::ErrorKind::InvalidData, "expected Ack"));
-        //                 break;
-        //             };
-
-        //             if hash == hash_primary(&payload) {
-        //                 res = Ok(send_size);
-        //             } else {
-        //                 res = Err(io::Error::new(io::ErrorKind::InvalidData, "Ack does not match"));
-        //             }
-
-        //             break;
-        //         },
-        //         _ = async {
-        //             tokio::time::sleep(timeout).await;
-        //         }.fuse() => {
-        //             retries -= 1;
-        //             log::debug!("response timed out. retries remaining: {}", retries);
-
-        //             continue;
-        //         }
-        //     }
-        // }
-
-        res
+        Ok(payload.len())
     }
 
     async fn recv_bytes(sock: &UdpSocket) -> io::Result<(SocketAddrV4, Vec<u8>)> {

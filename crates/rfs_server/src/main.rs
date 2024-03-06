@@ -10,7 +10,7 @@ use std::{
 
 use clap::Parser;
 use futures::FutureExt;
-use rfs::middleware::{Dispatcher, RequestAckProto, SimpleProto};
+use rfs::middleware::{Dispatcher, HandshakeProto, SimpleProto};
 
 use crate::{args::ServerArgs, server::RfsServer};
 
