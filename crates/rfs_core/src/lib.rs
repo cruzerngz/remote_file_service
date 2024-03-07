@@ -3,6 +3,7 @@
 
 pub mod middleware;
 pub mod ser_de;
+pub mod fsm;
 
 use async_trait::async_trait;
 use middleware::InvokeError;
