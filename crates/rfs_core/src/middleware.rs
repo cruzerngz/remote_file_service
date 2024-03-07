@@ -24,6 +24,7 @@ use serde::{Deserialize, Serialize};
 pub use context_manager::*;
 pub use dispatch::*;
 
+use crate::fsm::{self, TransitableState};
 // define the serde method here once for use by submodules
 use crate::ser_de::serialize_packed as serialize_primary;
 use crate::ser_de::{deserialize_packed as deserialize_primary, ByteViewer};
@@ -254,6 +255,9 @@ pub enum TransmissionPacket {
     /// For receipients of this packet, switch transmissions to this new target
     SwitchToAddress(SocketAddrV4),
 
+    /// A request for a sequence number
+    Seq(u64),
+
     /// An ack packet, along with a number.
     /// The meaning of the number sent within depends on the implementor of the protocol.
     Ack(u64),
@@ -297,6 +301,37 @@ fn sockaddr_to_v4(addr: SocketAddr) -> io::Result<SocketAddrV4> {
     }
 }
 
+/// A simple version of [HandshakeProto]. Every sent item needs an ack back.
+#[derive(Clone, Debug, Default)]
+pub struct SimpleHandshakeProto;
+
+#[async_trait]
+impl TransmissionProtocol for SimpleHandshakeProto {
+    async fn send_bytes<A>(
+        &mut self,
+        sock: &UdpSocket,
+        target: A,
+        payload: &[u8],
+        timeout: Duration,
+        retries: u8,
+    ) -> io::Result<usize>
+    where
+        A: ToSocketAddrs + std::marker::Send + std::marker::Sync,
+    {
+        todo!()
+    }
+
+    /// Wait for a UDP packet. Returns the packet source and data.
+    async fn recv_bytes(
+        &mut self,
+        sock: &UdpSocket,
+        timeout: Duration,
+        retries: u8,
+    ) -> io::Result<(SocketAddrV4, Vec<u8>)> {
+        todo!()
+    }
+}
+
 /// This protocol ensures that every sent packet from the source must be acknowledged by the sink.
 /// Timeouts and retries are fully implmented.
 #[derive(Clone, Debug)]
@@ -316,6 +351,33 @@ enum HandshakeStates {
 
     Complete,
 }
+
+#[derive(Clone, Debug)]
+enum HandshakeEvent {
+    SomeEvent,
+    OtherEvent,
+}
+
+fsm::state_transitions! {
+    state: HandshakeStates;
+    event: HandshakeEvent;
+
+
+}
+
+// impl TransitableState for HandshakeStates {
+//     type Event = HandshakeEvent;
+
+//     fn ingest(&mut self, transition: Self::Event) {
+//         // fsm::state_transition! {
+//         //     self: self;
+//         //     transition: transition;
+
+//         //     Complete + SomeEvent | OtherEvent => Waiting
+
+//         // }
+//     }
+// }
 
 impl HandshakeProto {
     /// This is a conservative limit on the max packet size
@@ -353,12 +415,14 @@ impl HandshakeProto {
 
                         let bytes = &buf[..size];
 
-                        if size != payload.len() {
-                            Err(io::Error::new(io::ErrorKind::InvalidData, "data not sent completely"))
-                        } else  {
-                            let v4_addr = sockaddr_to_v4(addr)?;
-                            Ok((v4_addr, bytes.to_vec()))
-                        }
+                        let v4_addr = sockaddr_to_v4(addr)?;
+                        Ok((v4_addr, bytes.to_vec()))
+
+                        // if size != payload.len() {
+                        //     Err(io::Error::new(io::ErrorKind::InvalidData, format!("data not sent completely. Have {}, sent {}", payload.len(), size)))
+                        // } else  {
+
+                        // }
                     })
 
                 }.fuse() => {
@@ -438,7 +502,7 @@ impl HandshakeProto {
 
             match (last, payload) {
                 // return after ack
-                (false, TransmissionPacket::Ack(num)) => {
+                (false, TransmissionPacket::Seq(num)) => {
                     match num as i32 - sequence_number as i32 {
                         0 => (), // retry transmission
                         1 => break Ok(()),
@@ -539,7 +603,7 @@ impl TransmissionProtocol for HandshakeProto {
         // first we will switch target sockets so that we don't block the main process
         // from receiving requests
 
-        let new_bind_addr = {
+        let template_addr = {
             let a = sock.local_addr()?;
             let mut addr = sockaddr_to_v4(a)?;
 
@@ -550,9 +614,9 @@ impl TransmissionProtocol for HandshakeProto {
 
         // create a new socket and establish a new connecion
         let (tx_sock, tx_target) = {
-            log::debug!("changing bind addresss");
+            let new_sock = UdpSocket::bind(template_addr).await?;
+            let new_bind_addr = sockaddr_to_v4(new_sock.local_addr()?)?;
 
-            let new_sock = UdpSocket::bind(new_bind_addr).await?;
             let ser_payload =
                 serialize_primary(&TransmissionPacket::SwitchToAddress(new_bind_addr))
                     .expect("serialization must not fail");
@@ -571,6 +635,9 @@ impl TransmissionProtocol for HandshakeProto {
                 }
             };
 
+            log::debug!("tx changing bind addresss to {}", new_bind_addr);
+            log::debug!("tx new target {}", remote_addr);
+
             new_sock.connect(remote_addr).await?;
             (new_sock, remote_addr)
         };
@@ -578,6 +645,11 @@ impl TransmissionProtocol for HandshakeProto {
         let mut curr_chunk = 0;
 
         let mut payload_view = ByteViewer::from_slice(payload);
+
+        // send an ack to recv to know that we are ready to transmit
+        loop {
+            break;
+        }
 
         // all packets except last
         // we'll send a reasonably large amount of data in each go
@@ -621,18 +693,16 @@ impl TransmissionProtocol for HandshakeProto {
         timeout: Duration,
         retries: u8,
     ) -> io::Result<(SocketAddrV4, Vec<u8>)> {
-        // await target address modification
-        // await new data
-
         let mut buf = [0_u8; 65535];
         let (size, original_target) = sock.recv_from(&mut buf).await?;
 
         let payload: TransmissionPacket = deserialize_primary(&buf[..size])
             .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "Deserializtion failed"))?;
 
+        // send the new address and await an ack
         let (tx_sock, tx_target) = if let TransmissionPacket::SwitchToAddress(remote_addr) = payload
         {
-            let new_bind_addr = {
+            let template_addr = {
                 let a = sock.local_addr()?;
                 let mut addr = sockaddr_to_v4(a)?;
 
@@ -640,13 +710,30 @@ impl TransmissionProtocol for HandshakeProto {
 
                 addr
             };
+            let new_sock = UdpSocket::bind(template_addr).await?;
+            let new_bind_addr = sockaddr_to_v4(new_sock.local_addr()?)?;
 
-            log::debug!("changing bind addresss");
-
-            let new_sock = UdpSocket::bind(new_bind_addr).await?;
+            log::debug!("rx changing bind addresss to {}", new_bind_addr);
+            log::debug!("rx new target {}", remote_addr);
 
             new_sock.connect(remote_addr).await?;
-            (new_sock, remote_addr)
+
+            let packet = TransmissionPacket::SwitchToAddress(new_bind_addr);
+            let ser_packet = serialize_primary(&packet).expect("serialization must not fail");
+
+            log::debug!("sending new address to tx");
+            let (_, ack) =
+                Self::send_and_recv(&new_sock, remote_addr, &ser_packet, timeout, retries).await?;
+
+            let ack_packet: TransmissionPacket = deserialize_primary(&ack).map_err(|_| {
+                io::Error::new(io::ErrorKind::InvalidData, "deserialization failed")
+            })?;
+
+            if let TransmissionPacket::Ack(_) = ack_packet {
+                (new_sock, remote_addr)
+            } else {
+                return Err(io::Error::new(io::ErrorKind::InvalidInput, "expected ack"));
+            }
         } else {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
@@ -662,7 +749,7 @@ impl TransmissionProtocol for HandshakeProto {
         loop {
             log::debug!("requesting sequence {}", 0);
 
-            let seq_packet = TransmissionPacket::Ack(seq_num);
+            let seq_packet = TransmissionPacket::Seq(seq_num);
             let ser_seq = serialize_primary(&seq_packet).expect("serialization must not fail");
             let (_, data) =
                 Self::send_and_recv(&tx_sock, &tx_target, &ser_seq, timeout, retries).await?;
@@ -1050,5 +1137,72 @@ mod tests {
         let s: i32 = probs.iter().sum();
 
         println!("1 in {} yields {}", frac, s);
+    }
+
+    /// Transmit and receive some stuff
+    async fn tx_rx<T: TransmissionProtocol + Clone + 'static>(
+        mut proto: T,
+        large: bool,
+        timeout: Duration,
+        retries: u8,
+    ) {
+        let data_size = match large {
+            true => 60_000 * 10,
+            false => 51_200,
+        };
+
+        let data_payload = (0..data_size)
+            .into_iter()
+            .map(|num| (num & 0b1) as u8)
+            .collect::<Vec<_>>();
+
+        let tx_sock = UdpSocket::bind(SocketAddrV4::new(Ipv4Addr::LOCALHOST, 0))
+            .await
+            .unwrap();
+
+        let rx_sock = UdpSocket::bind(SocketAddrV4::new(Ipv4Addr::LOCALHOST, 0))
+            .await
+            .unwrap();
+
+        let tx_target = rx_sock.local_addr().unwrap();
+        let rx_target = tx_sock.local_addr().unwrap();
+
+        let mut tx_proto = proto.clone();
+        let mut rx_proto = proto.clone();
+
+        let payload_clone = data_payload.clone();
+
+        let rx_handle =
+            tokio::spawn(async move { rx_proto.recv_bytes(&rx_sock, timeout, retries).await });
+
+        let tx_handle = tokio::spawn(async move {
+            tx_proto
+                .send_bytes(&tx_sock, tx_target, &payload_clone, timeout, retries)
+                .await
+        });
+
+        let tx_result = tx_handle
+            .await
+            .expect("unable to join task")
+            .expect("transmission failed");
+
+        let rx_result = rx_handle
+            .await
+            .expect("unable to join task")
+            .expect("receive failed");
+
+        assert_eq!(rx_result.1, data_payload);
+    }
+
+    #[tokio::test]
+    async fn test_transmission_protocols() {
+        std::env::set_var("RUST_LOG", "DEBUG");
+        pretty_env_logger::init();
+
+        let handshake_proto = HandshakeProto {
+            state: Default::default(),
+        };
+
+        tx_rx(handshake_proto, true, Duration::from_millis(750), 5).await
     }
 }
