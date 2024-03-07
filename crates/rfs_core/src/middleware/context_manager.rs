@@ -52,7 +52,7 @@ where
         retries: u8,
         protocol: T,
     ) -> std::io::Result<Self> {
-        let s = Self {
+        let mut s = Self {
             source_ip: source,
             target_ip: target,
             timeout,
@@ -69,16 +69,18 @@ where
 
         let payload = MiddlewareData::Ping;
 
-        let resp = T::send_bytes(
-            &sock,
-            target,
-            &super::serialize_primary(&payload).unwrap(),
-            timeout,
-            retries,
-        )
-        .await?;
+        let resp = s
+            .protocol
+            .send_bytes(
+                &sock,
+                target,
+                &super::serialize_primary(&payload).unwrap(),
+                timeout,
+                retries,
+            )
+            .await?;
 
-        let (addr, data) = T::recv_bytes(&sock).await?;
+        let (addr, data) = s.protocol.recv_bytes(&sock, timeout, retries).await?;
 
         let resp: MiddlewareData = super::deserialize_primary(&data).unwrap();
 
@@ -111,17 +113,22 @@ where
         let middleware_payload = MiddlewareData::Payload(data);
         let serialized_payload = super::serialize_primary(&middleware_payload).unwrap();
 
-        let _resp = T::send_bytes(
-            &source,
-            self.target_ip,
-            &serialized_payload,
-            self.timeout,
-            self.retries,
-        )
-        .await
-        .map_err(|e| <InvokeError>::from(e))?;
+        let _resp = self
+            .protocol
+            .send_bytes(
+                &source,
+                self.target_ip,
+                &serialized_payload,
+                self.timeout,
+                self.retries,
+            )
+            .await
+            .map_err(|e| <InvokeError>::from(e))?;
 
-        let (addr, resp) = T::recv_bytes(&source).await?;
+        let (addr, resp) = self
+            .protocol
+            .recv_bytes(&source, self.timeout, self.retries)
+            .await?;
 
         // response shoud come from the same IP
         assert_eq!(self.target_ip, addr);

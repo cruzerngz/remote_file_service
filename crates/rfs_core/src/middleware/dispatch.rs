@@ -75,7 +75,11 @@ where
         loop {
             // buf.clear();
 
-            match T::recv_bytes(&self.socket).await {
+            match self
+                .protocol
+                .recv_bytes(&self.socket, self.timeout, self.retries)
+                .await
+            {
                 Ok((addr, bytes)) => {
                     log::debug!("received {} bytes from {}", bytes.len(), addr);
 
@@ -127,14 +131,16 @@ where
                         super::serialize_primary(&middlware_response).unwrap();
 
                     // send the result and await an ack
-                    let sent_bytes = T::send_bytes(
-                        &self.socket,
-                        addr,
-                        &serialized_response,
-                        self.timeout,
-                        self.retries,
-                    )
-                    .await;
+                    let sent_bytes = self
+                        .protocol
+                        .send_bytes(
+                            &self.socket,
+                            addr,
+                            &serialized_response,
+                            self.timeout,
+                            self.retries,
+                        )
+                        .await;
 
                     log::debug!("sent {:?} bytes to {}", sent_bytes, addr);
                 }

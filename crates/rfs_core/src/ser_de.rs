@@ -359,7 +359,6 @@ mod tests {
         println!("{:?}", std::str::from_utf8(&ser));
         let des: T = deserialize_packed(&multi_packed).unwrap();
 
-
         println!("{:?}", des);
 
         assert_eq!(*input, des)

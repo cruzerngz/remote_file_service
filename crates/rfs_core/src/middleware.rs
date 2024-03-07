@@ -1,7 +1,7 @@
 //! This module contains the client and server side
 //! objects that transmit the contents of method invocations
 //! over the network.
-#![allow(unused)]
+// #![allow(unused)]
 
 mod blob_trx;
 mod callback;
@@ -14,8 +14,8 @@ use std::hash::{DefaultHasher, Hash, Hasher};
 use std::net::{SocketAddr, SocketAddrV4};
 use std::sync::Arc;
 use std::time::Duration;
+use std::{default, io, marker};
 use std::{fmt::Debug, net::Ipv4Addr};
-use std::{io, marker};
 use tokio::net::{ToSocketAddrs, UdpSocket};
 
 use async_trait::async_trait;
@@ -263,12 +263,11 @@ pub enum TransmissionPacket {
 }
 
 /// Types that implement this trait can be plugged into [`ContextManager`] and [`Dispatcher`].
-///
-/// All methods are associated methods; no `self` is required.
 #[async_trait]
 pub trait TransmissionProtocol: core::marker::Send + core::marker::Sync {
     /// Send bytes to the remote. Any fault-tolerant logic should be implemented here.
     async fn send_bytes<A>(
+        &mut self,
         sock: &UdpSocket,
         target: A,
         payload: &[u8],
@@ -279,7 +278,12 @@ pub trait TransmissionProtocol: core::marker::Send + core::marker::Sync {
         A: ToSocketAddrs + std::marker::Send + std::marker::Sync;
 
     /// Wait for a UDP packet. Returns the packet source and data.
-    async fn recv_bytes(sock: &UdpSocket) -> io::Result<(SocketAddrV4, Vec<u8>)>;
+    async fn recv_bytes(
+        &mut self,
+        sock: &UdpSocket,
+        timeout: Duration,
+        retries: u8,
+    ) -> io::Result<(SocketAddrV4, Vec<u8>)>;
 }
 /// Converts a socket address to a V4 one.
 /// V6 addresses will return an error.
@@ -297,7 +301,20 @@ fn sockaddr_to_v4(addr: SocketAddr) -> io::Result<SocketAddrV4> {
 /// Timeouts and retries are fully implmented.
 #[derive(Clone, Debug)]
 pub struct HandshakeProto {
-    // marker: marker::PhantomData<P>,
+    state: HandshakeStates, // marker: marker::PhantomData<P>,
+}
+
+#[derive(Clone, Debug, Default)]
+enum HandshakeStates {
+    /// When waiting, a request to switch target addresses can be performed.
+    #[default]
+    Waiting,
+
+    Sending,
+
+    Receiving,
+
+    Complete,
 }
 
 impl HandshakeProto {
@@ -509,6 +526,7 @@ impl HandshakeProto {
 #[async_trait]
 impl TransmissionProtocol for HandshakeProto {
     async fn send_bytes<A>(
+        &mut self,
         sock: &UdpSocket,
         target: A,
         payload: &[u8],
@@ -518,11 +536,6 @@ impl TransmissionProtocol for HandshakeProto {
     where
         A: ToSocketAddrs + std::marker::Send + std::marker::Sync,
     {
-        let mut res: io::Result<usize> = Err(io::Error::new(
-            io::ErrorKind::TimedOut,
-            "connection timed out",
-        ));
-
         // first we will switch target sockets so that we don't block the main process
         // from receiving requests
 
@@ -536,7 +549,7 @@ impl TransmissionProtocol for HandshakeProto {
         };
 
         // create a new socket and establish a new connecion
-        let tx_sock = {
+        let (tx_sock, tx_target) = {
             log::debug!("changing bind addresss");
 
             let new_sock = UdpSocket::bind(new_bind_addr).await?;
@@ -559,10 +572,9 @@ impl TransmissionProtocol for HandshakeProto {
             };
 
             new_sock.connect(remote_addr).await?;
-            new_sock
+            (new_sock, remote_addr)
         };
 
-        let total_chunks = payload.len().div_ceil(Self::MAX_PACKET_PAYLOAD_SIZE);
         let mut curr_chunk = 0;
 
         let mut payload_view = ByteViewer::from_slice(payload);
@@ -571,25 +583,126 @@ impl TransmissionProtocol for HandshakeProto {
         // we'll send a reasonably large amount of data in each go
         while payload_view.distance_to_end() >= Self::MAX_PACKET_PAYLOAD_SIZE {
             let payload = payload_view.next_bytes(Self::MAX_PACKET_PAYLOAD_SIZE, true);
-            let last = curr_chunk == total_chunks - 1;
 
             Self::send_and_recv_sequence(
                 &tx_sock,
                 curr_chunk as u32,
-                last,
-                &target,
+                false,
+                &tx_target,
                 payload,
                 timeout,
                 retries,
             )
             .await?;
+
+            curr_chunk += 1;
         }
+
+        // last packet is always sent
+        let last_data = payload_view.next_bytes(payload_view.distance_to_end(), true);
+
+        Self::send_and_recv_sequence(
+            &tx_sock,
+            curr_chunk as u32,
+            true,
+            &tx_target,
+            last_data,
+            timeout,
+            retries,
+        )
+        .await?;
 
         Ok(payload.len())
     }
 
-    async fn recv_bytes(sock: &UdpSocket) -> io::Result<(SocketAddrV4, Vec<u8>)> {
-        todo!()
+    async fn recv_bytes(
+        &mut self,
+        sock: &UdpSocket,
+        timeout: Duration,
+        retries: u8,
+    ) -> io::Result<(SocketAddrV4, Vec<u8>)> {
+        // await target address modification
+        // await new data
+
+        let mut buf = [0_u8; 65535];
+        let (size, original_target) = sock.recv_from(&mut buf).await?;
+
+        let payload: TransmissionPacket = deserialize_primary(&buf[..size])
+            .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "Deserializtion failed"))?;
+
+        let (tx_sock, tx_target) = if let TransmissionPacket::SwitchToAddress(remote_addr) = payload
+        {
+            let new_bind_addr = {
+                let a = sock.local_addr()?;
+                let mut addr = sockaddr_to_v4(a)?;
+
+                addr.set_port(0);
+
+                addr
+            };
+
+            log::debug!("changing bind addresss");
+
+            let new_sock = UdpSocket::bind(new_bind_addr).await?;
+
+            new_sock.connect(remote_addr).await?;
+            (new_sock, remote_addr)
+        } else {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "expected address swtich",
+            ));
+        };
+
+        // actual data received
+        let mut data_vec = Vec::<u8>::new();
+
+        // receive and reconstruct data
+        let mut seq_num = 0;
+        loop {
+            log::debug!("requesting sequence {}", 0);
+
+            let seq_packet = TransmissionPacket::Ack(seq_num);
+            let ser_seq = serialize_primary(&seq_packet).expect("serialization must not fail");
+            let (_, data) =
+                Self::send_and_recv(&tx_sock, &tx_target, &ser_seq, timeout, retries).await?;
+
+            let recv_packet: TransmissionPacket = deserialize_primary(&data).map_err(|_| {
+                io::Error::new(io::ErrorKind::InvalidData, "deserialization failed")
+            })?;
+
+            let (data, last) = if let TransmissionPacket::Data {
+                seq,
+                hash,
+                data,
+                last,
+            } = recv_packet
+            {
+                match (seq == seq_num as u32, hash == hash_primary(&data)) {
+                    (true, true) => (),
+                    // re-transmit packet
+                    _ => continue,
+                }
+
+                (data, last)
+            } else {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "expected data packet",
+                ));
+            };
+
+            data_vec.extend(data);
+
+            if last {
+                log::debug!("sequence rx complete");
+                break;
+            }
+
+            seq_num += 1;
+        }
+
+        Ok((sockaddr_to_v4(original_target)?, data_vec))
     }
 }
 
@@ -605,6 +718,7 @@ pub struct FaultyRequestAckProto<const FRAC: u32>;
 #[async_trait]
 impl<const FRAC: u32> TransmissionProtocol for FaultyRequestAckProto<FRAC> {
     async fn send_bytes<A>(
+        &mut self,
         sock: &UdpSocket,
         target: A,
         payload: &[u8],
@@ -676,7 +790,12 @@ impl<const FRAC: u32> TransmissionProtocol for FaultyRequestAckProto<FRAC> {
         todo!()
     }
 
-    async fn recv_bytes(sock: &UdpSocket) -> io::Result<(SocketAddrV4, Vec<u8>)> {
+    async fn recv_bytes(
+        &mut self,
+        sock: &UdpSocket,
+        timeout: Duration,
+        retries: u8,
+    ) -> io::Result<(SocketAddrV4, Vec<u8>)> {
         todo!()
     }
 }
@@ -698,6 +817,7 @@ pub struct SimpleProto;
 #[async_trait]
 impl TransmissionProtocol for SimpleProto {
     async fn send_bytes<A>(
+        &mut self,
         sock: &UdpSocket,
         target: A,
         payload: &[u8],
@@ -710,7 +830,12 @@ impl TransmissionProtocol for SimpleProto {
         sock.send_to(payload, target).await
     }
 
-    async fn recv_bytes(sock: &UdpSocket) -> io::Result<(SocketAddrV4, Vec<u8>)> {
+    async fn recv_bytes(
+        &mut self,
+        sock: &UdpSocket,
+        timeout: Duration,
+        retries: u8,
+    ) -> io::Result<(SocketAddrV4, Vec<u8>)> {
         let mut buf = [0_u8; 65535];
 
         let (size, addr) = sock.recv_from(&mut buf).await?;
