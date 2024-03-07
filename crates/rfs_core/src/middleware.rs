@@ -334,6 +334,9 @@ impl TransmissionProtocol for SimpleHandshakeProto {
 
 /// This protocol ensures that every sent packet from the source must be acknowledged by the sink.
 /// Timeouts and retries are fully implmented.
+///
+/// This protocol is not restricted by the UDP data limit.
+/// In other words, it supports the transmission of an arbitrary number of bytes.
 #[derive(Clone, Debug)]
 pub struct HandshakeProto {
     state: HandshakeStates, // marker: marker::PhantomData<P>,
@@ -456,9 +459,9 @@ impl HandshakeProto {
 
     /// Sends a packet out with a given sequence number.
     /// The same packet will be continuously sent until the receiver has acknowledged the sequence number
-    /// and sent a reply.
+    /// and sent a reply. The last packet is handled differently than the others.
     ///
-    /// The same restrictions apply for
+    /// The same restrictions from `send_and_recv` apply here.
     ///
     /// Retries apply for both sequence number.
     async fn send_and_recv_sequence<A: ToSocketAddrs>(
