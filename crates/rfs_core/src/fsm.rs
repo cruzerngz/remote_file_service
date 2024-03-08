@@ -45,10 +45,10 @@ pub trait TransitableState: Clone + Debug + Default {
 #[macro_export]
 macro_rules! state_transitions {
     {
-        state: $st: ident;
-        event: $ev: ident;
+        type State = $st: ident;
+        type Event = $ev: ident;
 
-        $($st_variant: ident + $($ev_variant: ident)|+ => $new_st: ident),*
+        $($st_variant: ident + $($ev_variant: ident)|+ => $new_st: ident;)*
     } => {
 
         impl TransitableState for $st {
@@ -77,6 +77,8 @@ pub(crate) use state_transitions;
 #[cfg(test)]
 mod macro_tests {
 
+    use std::default;
+
     use super::*;
 
     #[derive(Clone, Debug, Default)]
@@ -96,14 +98,28 @@ mod macro_tests {
     }
 
     state_transitions! {
-        state: SimpleMachine;
-        event: SimpleMachineEvents;
+        type State = SimpleMachine;
+        type Event = SimpleMachineEvents;
 
-        Off + PowerButtonPress => On,
-        On + PowerButtonPress => Off,
-        On + Start => Running,
-        Running + Stop => On,
-        Running + PowerButtonPress => Off
+        Off + PowerButtonPress => On;
+        On + PowerButtonPress => Off;
+        On + Start => Running;
+        Running + Stop => On;
+        Running + PowerButtonPress => Off;
+    }
+
+    #[derive(Clone, Debug, Default)]
+    enum OtherMachine {
+        #[default]
+        This,
+    }
+
+    enum OtherMachineEvents {}
+
+    // state machine with 1 state and no transitions
+    state_transitions! {
+        type State = OtherMachine;
+        type Event = OtherMachineEvents;
     }
 
     #[test]
@@ -129,4 +145,3 @@ mod macro_tests {
         assert!(matches!(machine, SimpleMachine::Off));
     }
 }
-
