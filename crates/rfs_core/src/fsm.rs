@@ -2,7 +2,7 @@
 
 use std::fmt::Debug;
 
-/// A type that implements this trait can undergo state machine transitions.
+/// C-enums that implement this trait can undergo state machine transitions.
 ///
 /// There are no outputs during state transitions, just changes in state.
 /// This is sufficient for the purposes of this project.
@@ -11,6 +11,8 @@ pub trait TransitableState: Clone + Debug + Default {
     type Event;
 
     /// Process the input and modify the internal state, if applicable.
+    ///
+    /// Use the [state_transitions!] macro to implement this trait.
     fn ingest(&mut self, transition: Self::Event);
 }
 
@@ -18,7 +20,10 @@ pub trait TransitableState: Clone + Debug + Default {
 ///
 /// This macro implements [TransitableState::ingest].
 ///
-/// ```ignore
+/// ```no_run
+/// use rfs_core::fsm::TransitableState;
+/// use rfs_core::state_transitions;
+///
 /// #[derive(Clone, Debug, Default)]
 /// enum SimpleMachine {
 ///     #[default]
@@ -26,20 +31,22 @@ pub trait TransitableState: Clone + Debug + Default {
 ///     On,
 ///     Running,
 /// }
+///
 /// enum SimpleMachineEvents {
 ///     PowerButtonPress,
 ///     Start,
 ///     Stop,
 /// }
-/// state_transitions! {
-///     state: SimpleMachine;
-///     event: SimpleMachineEvents;
 ///
-///     Off + PowerButtonPress => On,
-///     On + PowerButtonPress => Off,
-///     On + Start => Running,
-///     Running + Stop => On,
-///     Running + PowerButtonPress => Off
+/// state_transitions! {
+///     type State = SimpleMachine;
+///     type Event = SimpleMachineEvents;
+///
+///     Off + PowerButtonPress => On;
+///     On + PowerButtonPress => Off;
+///     On + Start => Running;
+///     Running + Stop => On;
+///     Running + PowerButtonPress => Off;
 /// }
 /// ```
 #[macro_export]
@@ -76,8 +83,6 @@ pub(crate) use state_transitions;
 
 #[cfg(test)]
 mod macro_tests {
-
-    use std::default;
 
     use super::*;
 
