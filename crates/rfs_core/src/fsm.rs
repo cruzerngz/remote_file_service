@@ -6,14 +6,14 @@ use std::fmt::Debug;
 ///
 /// There are no outputs during state transitions, just changes in state.
 /// This is sufficient for the purposes of this project.
-pub trait TransitableState: Clone + Debug + Default {
+pub trait TransitableState: Clone + Copy + Debug + Default {
     /// Events that can trigger a change in state.
     type Event;
 
     /// Process the input and modify the internal state, if applicable.
     ///
     /// Use the [state_transitions!] macro to implement this trait.
-    fn ingest(&mut self, transition: Self::Event);
+    fn ingest(&mut self, event: Self::Event);
 }
 
 /// Generate the state transition logic.
@@ -24,7 +24,7 @@ pub trait TransitableState: Clone + Debug + Default {
 /// use rfs_core::fsm::TransitableState;
 /// use rfs_core::state_transitions;
 ///
-/// #[derive(Clone, Debug, Default)]
+/// #[derive(Clone, Copy, Debug, Default)]
 /// enum SimpleMachine {
 ///     #[default]
 ///     Off,
@@ -61,9 +61,9 @@ macro_rules! state_transitions {
         impl TransitableState for $st {
             type Event = $ev;
 
-            fn ingest(&mut self, transition: Self::Event) {
+            fn ingest(&mut self, event: Self::Event) {
 
-                *self = match (&self, transition) {
+                *self = match (&self, event) {
 
                     $(
                         (Self::$st_variant, $(Self::Event::$ev_variant)|+) => Self::$new_st,
@@ -86,7 +86,7 @@ mod macro_tests {
 
     use super::*;
 
-    #[derive(Clone, Debug, Default)]
+    #[derive(Clone, Copy, Debug, Default)]
     enum SimpleMachine {
         #[default]
         Off,
@@ -113,7 +113,7 @@ mod macro_tests {
         Running + PowerButtonPress => Off;
     }
 
-    #[derive(Clone, Debug, Default)]
+    #[derive(Clone, Copy, Debug, Default)]
     enum OtherMachine {
         #[default]
         This,

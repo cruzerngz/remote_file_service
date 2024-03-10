@@ -1,7 +1,7 @@
 //! This module contains the client and server side
 //! objects that transmit the contents of method invocations
 //! over the network.
-#![allow(unused)]
+// #![allow(unused)]
 
 mod blob_trx;
 mod callback;
