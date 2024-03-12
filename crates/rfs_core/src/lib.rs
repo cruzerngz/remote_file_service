@@ -1,9 +1,9 @@
 //! This crate contains core implementations and traits for
 //! both the server and client.
 
+pub mod fsm;
 pub mod middleware;
 pub mod ser_de;
-pub mod fsm;
 
 use async_trait::async_trait;
 use middleware::InvokeError;

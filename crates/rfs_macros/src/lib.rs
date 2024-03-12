@@ -194,3 +194,22 @@ fn pat_to_struct_field(pat: &syn::PatType) -> syn::Field {
         ty: *pat.ty.clone(),
     }
 }
+
+// create a log::trace! macro by tagging the function name with the #[::function_name::named] attribute and then using
+// the function_name! macro to get the function name.
+fn create_trace_macro(ident: &syn::Ident) -> syn::ItemMacro {
+    let function_name = syn::Ident::new("function_name", ident.span());
+    let function_name_named = syn::Ident::new("named", ident.span());
+
+    syn::parse_quote! {
+        #[macro_export]
+        macro_rules! trace {
+            ($($arg:tt)*) => (log::trace!(concat!("[", #function_name!(), "] ", $($arg)*)))
+        }
+    }
+}
+
+#[proc_macro]
+pub fn trace(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
+    todo!()
+}

@@ -70,7 +70,7 @@ macro_rules! state_transitions {
                     )*
 
                     // all other cases
-                    _ => self.clone(),
+                    _ => *self,
                 };
 
             }

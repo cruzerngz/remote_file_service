@@ -705,8 +705,14 @@ mod tests {
             .await
             .unwrap();
 
+        log::debug!("tx_sock: {:?}", tx_sock);
+        log::debug!("rx_sock: {:?}", rx_sock);
+
         let tx_target = rx_sock.local_addr().unwrap();
         let rx_target = tx_sock.local_addr().unwrap();
+
+        log::debug!("tx_target: {:?}", tx_target);
+        log::debug!("rx_target: {:?}", rx_target);
 
         let mut tx_proto = proto.clone();
         let mut rx_proto = proto.clone();
@@ -715,6 +721,8 @@ mod tests {
 
         let rx_handle =
             tokio::spawn(async move { rx_proto.recv_bytes(&rx_sock, timeout, retries).await });
+
+        tokio::time::sleep(Duration::from_millis(200)).await;
 
         let tx_handle = tokio::spawn(async move {
             tx_proto
@@ -740,10 +748,14 @@ mod tests {
         std::env::set_var("RUST_LOG", "DEBUG");
         pretty_env_logger::init();
 
-        let handshake_proto = HandshakeProto {
-            // rx_state: Default::default(),
-        };
+        let handshake_proto = HandshakeProto {};
 
-        tx_rx(handshake_proto, true, Duration::from_millis(750), 5).await
+        log::info!("testing HandshakeProto large");
+        tx_rx(handshake_proto.clone(), true, Duration::from_millis(750), 5).await;
+
+        log::info!("testing HandshakeProto small");
+        tx_rx(handshake_proto, false, Duration::from_millis(750), 5).await;
+
+        return;
     }
 }
