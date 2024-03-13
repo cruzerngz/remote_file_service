@@ -374,7 +374,10 @@ impl HandshakeProto {
 
             let data = &seq_buf[..size];
             let packet: TransmissionPacket = deserialize_primary(&data).map_err(|_| {
-                io::Error::new(io::ErrorKind::InvalidData, "tx deserialization failed of Transmission packet")
+                io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "tx deserialization failed of Transmission packet",
+                )
             })?;
 
             match packet {
@@ -412,8 +415,6 @@ impl HandshakeProto {
 
                     let ser_packet =
                         serialize_primary(&packet).expect("serialization must not fail");
-
-                    log::info!("tx serialized packet: {:?}", ser_packet);
 
                     sock.send_to(&ser_packet, target).await?;
                 }
@@ -499,11 +500,12 @@ impl HandshakeProto {
 
             let (size, _) = sock.recv_from(&mut seq_buf).await?;
 
-            log::info!("rx received data: {:?}", &seq_buf[..size]);
-
             let packet: TransmissionPacket =
                 deserialize_primary(&seq_buf[..size]).map_err(|_| {
-                    io::Error::new(io::ErrorKind::InvalidData, "rx deserialization failed of TransmissionPacket")
+                    io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        "rx deserialization failed of TransmissionPacket",
+                    )
                 })?;
 
             // {
@@ -675,8 +677,6 @@ impl TransmissionProtocol for HandshakeProto {
                 }
             }
         }
-
-        log::debug!("{:?}", rx_data);
 
         // let dummy_addr = rx_target.expect("no target to receive from");
         return Ok((rx_source, rx_data));

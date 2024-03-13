@@ -9,15 +9,13 @@ mod context_manager;
 mod dispatch;
 mod handshake_proto;
 
-use core::hash;
 use futures::FutureExt;
 use std::collections::HashMap;
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::net::{SocketAddr, SocketAddrV4};
 use std::sync::Arc;
 use std::time::Duration;
-use std::{clone, default, io, marker};
-use std::{fmt::Debug, net::Ipv4Addr};
+use std::{fmt::Debug, io, net::Ipv4Addr};
 use tokio::net::{ToSocketAddrs, UdpSocket};
 
 use async_trait::async_trait;
@@ -27,10 +25,9 @@ pub use context_manager::*;
 pub use dispatch::*;
 pub use handshake_proto::HandshakeProto;
 
-use crate::fsm::{self, TransitableState};
 // define the serde method here once for use by submodules
+use crate::ser_de::deserialize_packed as deserialize_primary;
 use crate::ser_de::serialize_packed as serialize_primary;
-use crate::ser_de::{deserialize_packed as deserialize_primary, ByteViewer};
 
 /// Max payload size
 const BYTE_BUF_SIZE: usize = 65535;
@@ -305,37 +302,100 @@ fn sockaddr_to_v4(addr: SocketAddr) -> io::Result<SocketAddrV4> {
     }
 }
 
-/// A simple version of [HandshakeProto]. Every sent item needs an ack back.
+/// A simple version of [HandshakeProto]. This protocol is compatible with [FaultyRequestAckProto].
+///
+/// Every sent item needs an ack back.
 #[derive(Clone, Debug, Default)]
-pub struct SimpleHandshakeProto;
+pub struct RequestAckProto;
 
 #[async_trait]
-impl TransmissionProtocol for SimpleHandshakeProto {
+impl TransmissionProtocol for RequestAckProto {
     async fn send_bytes<A>(
         &mut self,
         sock: &UdpSocket,
         target: A,
         payload: &[u8],
         timeout: Duration,
-        retries: u8,
+        mut retries: u8,
     ) -> io::Result<usize>
     where
         A: ToSocketAddrs + std::marker::Send + std::marker::Sync,
     {
-        todo!()
+        let mut res: io::Result<usize> = Err(io::Error::new(
+            io::ErrorKind::TimedOut,
+            "connection timed out",
+        ));
+
+        while retries != 0 {
+            log::debug!("sending data to target");
+
+            // occasionally err
+            let send_size = sock.send_to(payload, &target).await?;
+
+            let mut buf = [0_u8; 100];
+
+            tokio::select! {
+                biased;
+
+                recv_res = async {
+                    sock.recv(&mut buf).await
+                }.fuse() => {
+                    log::debug!("response received from target");
+
+                    let recv_size = recv_res?;
+                    let slice = &buf[..recv_size];
+
+                    let de: TransmissionPacket = deserialize_primary(slice).unwrap();
+                    let hash = if let TransmissionPacket::Ack(h) = de {
+                        h
+                    } else {
+                        res = Err(io::Error::new(io::ErrorKind::InvalidData, "expected Ack"));
+                        break;
+                    };
+
+                    if hash == hash_primary(&payload) {
+                        res = Ok(send_size);
+                    } else {
+                        res = Err(io::Error::new(io::ErrorKind::InvalidData, "Ack does not match"));
+                    }
+
+                    break;
+                },
+                _ = async {
+                    tokio::time::sleep(timeout).await;
+                }.fuse() => {
+                    retries -= 1;
+                    log::debug!("response timed out. retries remaining: {}", retries);
+
+                    continue;
+                }
+            }
+        }
+
+        res
     }
 
     async fn recv_bytes(
         &mut self,
         sock: &UdpSocket,
-        timeout: Duration,
-        retries: u8,
+        _timeout: Duration,
+        _retries: u8,
     ) -> io::Result<(SocketAddrV4, Vec<u8>)> {
-        todo!()
+        let mut recv_buf = [0_u8; BYTE_BUF_SIZE];
+
+        let (size, addr) = sock.recv_from(&mut recv_buf).await?;
+
+        let hash = hash_primary(&&recv_buf[..size]);
+        let resp = TransmissionPacket::Ack(hash);
+
+        let ser_resp = serialize_primary(&resp).expect("serialization should not fail");
+        sock.send_to(&ser_resp, addr).await?;
+
+        Ok((sockaddr_to_v4(addr)?, recv_buf[..size].to_vec()))
     }
 }
 
-/// A faulty version of [RequestAckProto].
+/// A faulty version that is compatible with [RequestAckProto].
 ///
 /// This protocol may drop packets on transmission.
 /// The packet drop probabilty is specified in the const generic.
@@ -420,8 +480,8 @@ impl<const FRAC: u32> TransmissionProtocol for FaultyRequestAckProto<FRAC> {
     async fn recv_bytes(
         &mut self,
         sock: &UdpSocket,
-        timeout: Duration,
-        retries: u8,
+        _timeout: Duration,
+        _retries: u8,
     ) -> io::Result<(SocketAddrV4, Vec<u8>)> {
         let mut recv_buf = [0_u8; BYTE_BUF_SIZE];
 
@@ -446,6 +506,8 @@ fn probability_frac(frac: u32) -> bool {
 }
 
 /// Packets are sent to the destination without checking if they have been received.
+///
+/// This protocol is compatible only with itself.
 ///
 /// As this sends all data in a single UDP packet, the max payload size is `65507` bytes.
 #[derive(Clone, Debug)]
@@ -523,14 +585,28 @@ impl From<io::Error> for InvokeError {
 impl From<InvokeError> for io::Error {
     fn from(value: InvokeError) -> Self {
         match value {
-            InvokeError::HandlerNotFound => todo!(),
-            InvokeError::SignatureNotMatched => todo!(),
-            InvokeError::RequestTimedOut => todo!(),
-            InvokeError::DeserializationFailed => todo!(),
-            InvokeError::RemoteConnectionFailed => todo!(),
-            InvokeError::DataTransmissionFailed => todo!(),
-            InvokeError::RemoteReceiveError => todo!(),
-            InvokeError::InvalidData => todo!(),
+            InvokeError::HandlerNotFound => {
+                io::Error::new(io::ErrorKind::NotFound, "handler not found")
+            }
+            InvokeError::SignatureNotMatched => {
+                io::Error::new(io::ErrorKind::InvalidData, "signature not matched")
+            }
+            InvokeError::RequestTimedOut => {
+                io::Error::new(io::ErrorKind::TimedOut, "request timed out")
+            }
+            InvokeError::DeserializationFailed => {
+                io::Error::new(io::ErrorKind::InvalidData, "deserialization failed")
+            }
+            InvokeError::RemoteConnectionFailed => {
+                io::Error::new(io::ErrorKind::ConnectionRefused, "remote connection failed")
+            }
+            InvokeError::DataTransmissionFailed => {
+                io::Error::new(io::ErrorKind::BrokenPipe, "data transmission failed")
+            }
+            InvokeError::RemoteReceiveError => {
+                io::Error::new(io::ErrorKind::BrokenPipe, "remote receive error")
+            }
+            InvokeError::InvalidData => io::Error::new(io::ErrorKind::InvalidData, "invalid data"),
         }
     }
 }
@@ -767,6 +843,9 @@ mod tests {
 
         log::info!("testing DefaultProto small");
         tx_rx(DefaultProto, false, Duration::from_millis(400), 2).await;
+
+        log::info!("testing RequestAckProto small");
+        tx_rx(RequestAckProto, false, Duration::from_millis(400), 3).await;
 
         log::info!("testing FaultyRequestAckProto small");
         tx_rx(
