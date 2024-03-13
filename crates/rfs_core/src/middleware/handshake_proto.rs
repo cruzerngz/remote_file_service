@@ -1,4 +1,5 @@
 //! Module for [HandshakeProto]
+#![allow(unused)]
 
 use std::net::Ipv4Addr;
 use std::{io, net::SocketAddrV4, time::Duration};
@@ -373,7 +374,7 @@ impl HandshakeProto {
 
             let data = &seq_buf[..size];
             let packet: TransmissionPacket = deserialize_primary(&data).map_err(|_| {
-                io::Error::new(io::ErrorKind::InvalidData, "deserialization failed")
+                io::Error::new(io::ErrorKind::InvalidData, "tx deserialization failed of Transmission packet")
             })?;
 
             match packet {
@@ -383,6 +384,7 @@ impl HandshakeProto {
                     return Ok(());
                 }
                 TransmissionPacket::Seq(seq_num) => {
+                    log::debug!("tx sending sequence {}", seq_num);
                     let start = seq_num as usize * Self::MAX_PACKET_PAYLOAD_SIZE;
                     let packet = match seq_num as usize + 1 == num_segments {
                         true => {
@@ -411,6 +413,8 @@ impl HandshakeProto {
                     let ser_packet =
                         serialize_primary(&packet).expect("serialization must not fail");
 
+                    log::info!("tx serialized packet: {:?}", ser_packet);
+
                     sock.send_to(&ser_packet, target).await?;
                 }
 
@@ -428,47 +432,49 @@ impl HandshakeProto {
 
 // rx impls
 impl HandshakeProto {
-    // await the new address and send back a new address
+    /// await the new address and send back a new address.
+    ///
+    /// The original address of the tx is returned.
     async fn await_address_change(
         &mut self,
         state: &mut HandshakeRx,
         sock: &UdpSocket,
         new_target: &mut Option<SocketAddrV4>,
         new_address: SocketAddrV4,
-    ) -> io::Result<()> {
+    ) -> io::Result<SocketAddrV4> {
         let mut recv_buf = [0_u8; 1000];
 
-        loop {
-            let (size, _) = sock.recv_from(&mut recv_buf).await?;
+        let addr = loop {
+            let (size, addr) = sock.recv_from(&mut recv_buf).await?;
 
             let packet: TransmissionPacket =
                 deserialize_primary(&recv_buf[..size]).map_err(|_| {
-                    io::Error::new(io::ErrorKind::InvalidData, "deserialization faield")
+                    io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        "deserialization failed of TransmissionPacket when awaiting new address",
+                    )
                 })?;
 
             match packet {
                 TransmissionPacket::SwitchToAddress(new_addr) => {
                     log::debug!("rx changing target addresss to {}", new_addr);
                     *new_target = Some(new_addr);
-                    break;
+                    break addr;
                 }
+
                 // continue listening
                 _ => (),
             }
-        }
+        };
 
         let packet = TransmissionPacket::SwitchToAddress(new_address);
         let ser_packet = serialize_primary(&packet).expect("serialization must not fail");
 
-        sock.send_to(
-            &ser_packet,
-            new_target.expect("target address must be valid"),
-        )
-        .await?;
+        sock.send_to(&ser_packet, addr).await?;
 
         state.ingest(HandshakeRxEvent::SendNewAddr);
 
-        Ok(())
+        Ok(sockaddr_to_v4(addr)?)
     }
 
     // receive loop
@@ -488,15 +494,26 @@ impl HandshakeProto {
             let packet = TransmissionPacket::Seq(sequence_num);
             let ser_packet = serialize_primary(&packet).expect("serialization must not fail");
 
+            log::debug!("rx requesting sequence {}", sequence_num);
             let _ = sock.send_to(&ser_packet, target).await?;
 
             let (size, _) = sock.recv_from(&mut seq_buf).await?;
 
+            log::info!("rx received data: {:?}", &seq_buf[..size]);
+
             let packet: TransmissionPacket =
                 deserialize_primary(&seq_buf[..size]).map_err(|_| {
-                    io::Error::new(io::ErrorKind::InvalidData, "deserialization failed")
+                    io::Error::new(io::ErrorKind::InvalidData, "rx deserialization failed of TransmissionPacket")
                 })?;
 
+            // {
+            //     Ok(res) => res,
+            //     Err(e) => {
+            //         log::error!("deserialization failed: {:?}", e);
+            //         // retry
+            //         continue;
+            //     },
+            // };
             match packet {
                 TransmissionPacket::Data {
                     seq,
@@ -582,7 +599,7 @@ impl TransmissionProtocol for HandshakeProto {
                 HandshakeTx::SendAddressChange => {
                     self.send_address_change(
                         &mut tx_state,
-                        &tx_sock,
+                        &sock,
                         &target, // address changes are sent to the existing address
                         sockaddr_to_v4(tx_sock.local_addr()?)?,
                         &mut tx_target,
@@ -608,90 +625,7 @@ impl TransmissionProtocol for HandshakeProto {
         }
 
         // temp break point
-        return Ok(0);
-
-        let template_addr = {
-            let a = sock.local_addr()?;
-            let mut addr = sockaddr_to_v4(a)?;
-
-            addr.set_port(0);
-
-            addr
-        };
-
-        // create a new socket and establish a new connecion
-        let (tx_sock, tx_target) = {
-            let new_sock = UdpSocket::bind(template_addr).await?;
-            let new_bind_addr = sockaddr_to_v4(new_sock.local_addr()?)?;
-
-            let ser_payload =
-                serialize_primary(&TransmissionPacket::SwitchToAddress(new_bind_addr))
-                    .expect("serialization must not fail");
-
-            // get the new remote address
-            let remote_addr = loop {
-                let (_, data) =
-                    Self::send_and_recv(&new_sock, &target, &ser_payload, timeout, retries).await?;
-
-                let recv_packet: TransmissionPacket = deserialize_primary(&data).map_err(|_| {
-                    io::Error::new(io::ErrorKind::InvalidData, "deserialization failed")
-                })?;
-
-                if let TransmissionPacket::SwitchToAddress(a) = recv_packet {
-                    break a;
-                }
-            };
-
-            log::debug!("tx changing bind addresss to {}", new_bind_addr);
-            log::debug!("tx new target {}", remote_addr);
-
-            new_sock.connect(remote_addr).await?;
-            (new_sock, remote_addr)
-        };
-
-        let mut curr_chunk = 0;
-
-        let mut payload_view = ByteViewer::from_slice(payload);
-
-        // send an ack to recv to know that we are ready to transmit
-        loop {
-            break;
-        }
-
-        // all packets except last
-        // we'll send a reasonably large amount of data in each go
-        while payload_view.distance_to_end() >= Self::MAX_PACKET_PAYLOAD_SIZE {
-            let payload = payload_view.next_bytes(Self::MAX_PACKET_PAYLOAD_SIZE, true);
-
-            Self::send_and_recv_sequence(
-                &tx_sock,
-                curr_chunk as u32,
-                false,
-                &tx_target,
-                payload,
-                timeout,
-                retries,
-            )
-            .await?;
-
-            curr_chunk += 1;
-        }
-
-        // last packet is always sent
-        let last_data = payload_view.next_bytes(payload_view.distance_to_end(), true);
-
-        Self::send_and_recv_sequence(
-            &tx_sock,
-            curr_chunk as u32,
-            true,
-            &tx_target,
-            last_data,
-            timeout,
-            retries,
-        )
-        .await?;
-
-        Ok(payload.len())
+        return Ok(payload.len());
     }
 
     async fn recv_bytes(
@@ -706,6 +640,9 @@ impl TransmissionProtocol for HandshakeProto {
 
         let rx_sock = new_socket_from_existing(sock).await?;
 
+        // this is the original address of tx
+        let mut rx_source: SocketAddrV4 = SocketAddrV4::new(Ipv4Addr::new(0, 0, 0, 0), 0);
+
         let mut rx_data = Vec::new();
 
         loop {
@@ -713,13 +650,14 @@ impl TransmissionProtocol for HandshakeProto {
 
             match rx_state {
                 HandshakeRx::AwaitAddressChange => {
-                    self.await_address_change(
-                        &mut rx_state,
-                        sock, // we need to use the existing socket when listening for these changes
-                        &mut rx_target,
-                        sockaddr_to_v4(rx_sock.local_addr()?)?,
-                    )
-                    .await?
+                    rx_source = self
+                        .await_address_change(
+                            &mut rx_state,
+                            sock, // we need to use the existing socket when listening for these changes
+                            &mut rx_target,
+                            sockaddr_to_v4(rx_sock.local_addr()?)?,
+                        )
+                        .await?
                 }
                 HandshakeRx::Receive => {
                     self.receive(
@@ -738,106 +676,9 @@ impl TransmissionProtocol for HandshakeProto {
             }
         }
 
-        // temp break point
-        let dummy_addr = SocketAddrV4::new(Ipv4Addr::new(0, 0, 0, 0), 0);
-        return Ok((dummy_addr, rx_data));
+        log::debug!("{:?}", rx_data);
 
-        let mut buf = [0_u8; 65535];
-        let (size, original_target) = sock.recv_from(&mut buf).await?;
-
-        let payload: TransmissionPacket = deserialize_primary(&buf[..size])
-            .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "Deserializtion failed"))?;
-
-        // send the new address and await an ack
-        let (tx_sock, tx_target) = if let TransmissionPacket::SwitchToAddress(remote_addr) = payload
-        {
-            let template_addr = {
-                let a = sock.local_addr()?;
-                let mut addr = sockaddr_to_v4(a)?;
-
-                addr.set_port(0);
-
-                addr
-            };
-            let new_sock = UdpSocket::bind(template_addr).await?;
-            let new_bind_addr = sockaddr_to_v4(new_sock.local_addr()?)?;
-
-            log::debug!("rx changing bind addresss to {}", new_bind_addr);
-            log::debug!("rx new target {}", remote_addr);
-
-            new_sock.connect(remote_addr).await?;
-
-            let packet = TransmissionPacket::SwitchToAddress(new_bind_addr);
-            let ser_packet = serialize_primary(&packet).expect("serialization must not fail");
-
-            log::debug!("sending new address to tx");
-            let (_, ack) =
-                Self::send_and_recv(&new_sock, remote_addr, &ser_packet, timeout, retries).await?;
-
-            let ack_packet: TransmissionPacket = deserialize_primary(&ack).map_err(|_| {
-                io::Error::new(io::ErrorKind::InvalidData, "deserialization failed")
-            })?;
-
-            if let TransmissionPacket::Ack(_) = ack_packet {
-                (new_sock, remote_addr)
-            } else {
-                return Err(io::Error::new(io::ErrorKind::InvalidInput, "expected ack"));
-            }
-        } else {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidInput,
-                "expected address swtich",
-            ));
-        };
-
-        // actual data received
-        let mut data_vec = Vec::<u8>::new();
-
-        // receive and reconstruct data
-        let mut seq_num = 0;
-        loop {
-            log::debug!("requesting sequence {}", 0);
-
-            let seq_packet = TransmissionPacket::Seq(seq_num);
-            let ser_seq = serialize_primary(&seq_packet).expect("serialization must not fail");
-            let (_, data) =
-                Self::send_and_recv(&tx_sock, &tx_target, &ser_seq, timeout, retries).await?;
-
-            let recv_packet: TransmissionPacket = deserialize_primary(&data).map_err(|_| {
-                io::Error::new(io::ErrorKind::InvalidData, "deserialization failed")
-            })?;
-
-            let (data, last) = if let TransmissionPacket::Data {
-                seq,
-                hash,
-                data,
-                last,
-            } = recv_packet
-            {
-                match (seq == seq_num as u32, hash == hash_primary(&data)) {
-                    (true, true) => (),
-                    // re-transmit packet
-                    _ => continue,
-                }
-
-                (data, last)
-            } else {
-                return Err(io::Error::new(
-                    io::ErrorKind::InvalidInput,
-                    "expected data packet",
-                ));
-            };
-
-            data_vec.extend(data);
-
-            if last {
-                log::debug!("sequence rx complete");
-                break;
-            }
-
-            seq_num += 1;
-        }
-
-        Ok((sockaddr_to_v4(original_target)?, data_vec))
+        // let dummy_addr = rx_target.expect("no target to receive from");
+        return Ok((rx_source, rx_data));
     }
 }

@@ -10,7 +10,7 @@ use std::{
 
 use clap::Parser;
 use futures::FutureExt;
-use rfs::middleware::{Dispatcher, HandshakeProto, SimpleProto};
+use rfs::middleware::{DefaultProto, Dispatcher, HandshakeProto};
 
 use crate::{args::ServerArgs, server::RfsServer};
 
@@ -30,15 +30,15 @@ async fn main() {
     let mut dispatcher = Dispatcher::new(
         addr,
         server,
-        SimpleProto,
+        HandshakeProto {},
         args.request_timeout.into(),
         rfs::defaults::DEFAULT_RETRIES,
     )
     .await;
 
-    // dispatcher.dispatch().await;
+    dispatcher.dispatch().await;
 
-    max_udp_tx_rx().await;
+    // max_udp_tx_rx().await;
 
     return;
 }

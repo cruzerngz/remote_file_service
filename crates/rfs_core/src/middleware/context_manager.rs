@@ -74,7 +74,7 @@ where
             .send_bytes(
                 &sock,
                 target,
-                &super::serialize_primary(&payload).unwrap(),
+                &crate::serialize(&payload).unwrap(),
                 timeout,
                 retries,
             )
@@ -82,7 +82,7 @@ where
 
         let (addr, data) = s.protocol.recv_bytes(&sock, timeout, retries).await?;
 
-        let resp: MiddlewareData = super::deserialize_primary(&data).unwrap();
+        let resp: MiddlewareData = crate::deserialize(&data).unwrap();
 
         match resp == payload {
             true => {
@@ -111,7 +111,7 @@ where
         log::debug!("connected to {}", self.target_ip);
 
         let middleware_payload = MiddlewareData::Payload(data);
-        let serialized_payload = super::serialize_primary(&middleware_payload).unwrap();
+        let serialized_payload = crate::serialize(&middleware_payload).expect("serialization must not fail");
 
         let _resp = self
             .protocol
@@ -134,7 +134,7 @@ where
         assert_eq!(self.target_ip, addr);
 
         let middleware_resp: MiddlewareData =
-            super::deserialize_primary(&resp).map_err(|_| InvokeError::DeserializationFailed)?;
+            crate::deserialize(&resp).map_err(|_| InvokeError::DeserializationFailed)?;
 
         match middleware_resp {
             MiddlewareData::Payload(p) => P::process_invocation(&p),

@@ -89,13 +89,12 @@ where
                     }
 
                     log::debug!("packet has stuff");
-                    // let header = buf.iter().take(20).map(|num| *num).collect::<Vec<_>>();
-                    // log::debug!("packet header {:?}", std::str::from_utf8(&header));
+                    log::debug!("packet contents: {:?}", bytes);
 
                     // send an ack back
                     // T::send_ack(&self.socket, addr, copy).await;
 
-                    let data: MiddlewareData = match super::deserialize_primary(&buf) {
+                    let data: MiddlewareData = match crate::deserialize(&bytes) {
                         Ok(d) => d,
                         Err(e) => {
                             log::error!("deserialization failed: {:?}", e);
@@ -127,8 +126,7 @@ where
                         _ => todo!(),
                     };
 
-                    let serialized_response =
-                        super::serialize_primary(&middlware_response).unwrap();
+                    let serialized_response = crate::serialize(&middlware_response).unwrap();
 
                     // send the result and await an ack
                     let sent_bytes = self

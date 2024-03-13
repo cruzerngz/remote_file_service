@@ -9,6 +9,7 @@ mod context_manager;
 mod dispatch;
 mod handshake_proto;
 
+use core::hash;
 use futures::FutureExt;
 use std::collections::HashMap;
 use std::hash::{DefaultHasher, Hash, Hasher};
@@ -356,66 +357,64 @@ impl<const FRAC: u32> TransmissionProtocol for FaultyRequestAckProto<FRAC> {
     where
         A: ToSocketAddrs + std::marker::Send + std::marker::Sync,
     {
-        // let mut res: io::Result<usize> = Err(io::Error::new(
-        //     io::ErrorKind::TimedOut,
-        //     "connection timed out",
-        // ));
+        let mut res: io::Result<usize> = Err(io::Error::new(
+            io::ErrorKind::TimedOut,
+            "connection timed out",
+        ));
 
-        // while retries != 0 {
-        //     log::debug!("sending data to target");
+        while retries != 0 {
+            log::debug!("sending data to target");
 
-        //     // occasionally err
-        //     let send_size = match probability_frac(FRAC) {
-        //         true => {
-        //             log::error!("simulated packet drop");
-        //             payload.len()
-        //         }
-        //         false => sock.send_to(payload, &target).await?,
-        //     };
+            // occasionally err
+            let send_size = match probability_frac(FRAC) {
+                true => {
+                    log::error!("simulated packet drop");
+                    payload.len()
+                }
+                false => sock.send_to(payload, &target).await?,
+            };
 
-        //     let mut buf = [0_u8; 100];
+            let mut buf = [0_u8; 100];
 
-        //     tokio::select! {
-        //         biased;
+            tokio::select! {
+                biased;
 
-        //         recv_res = async {
-        //             sock.recv(&mut buf).await
-        //         }.fuse() => {
-        //             log::debug!("response received from target");
+                recv_res = async {
+                    sock.recv(&mut buf).await
+                }.fuse() => {
+                    log::debug!("response received from target");
 
-        //             let recv_size = recv_res?;
-        //             let slice = &buf[..recv_size];
+                    let recv_size = recv_res?;
+                    let slice = &buf[..recv_size];
 
-        //             let de: MiddlewareData = deserialize_primary(slice).unwrap();
-        //             let hash = if let MiddlewareData::Ack(h) = de {
-        //                 h
-        //             } else {
-        //                 res = Err(io::Error::new(io::ErrorKind::InvalidData, "expected Ack"));
-        //                 break;
-        //             };
+                    let de: TransmissionPacket = deserialize_primary(slice).unwrap();
+                    let hash = if let TransmissionPacket::Ack(h) = de {
+                        h
+                    } else {
+                        res = Err(io::Error::new(io::ErrorKind::InvalidData, "expected Ack"));
+                        break;
+                    };
 
-        //             if hash == hash_primary(&payload) {
-        //                 res = Ok(send_size);
-        //             } else {
-        //                 res = Err(io::Error::new(io::ErrorKind::InvalidData, "Ack does not match"));
-        //             }
+                    if hash == hash_primary(&payload) {
+                        res = Ok(send_size);
+                    } else {
+                        res = Err(io::Error::new(io::ErrorKind::InvalidData, "Ack does not match"));
+                    }
 
-        //             break;
-        //         },
-        //         _ = async {
-        //             tokio::time::sleep(timeout).await;
-        //         }.fuse() => {
-        //             retries -= 1;
-        //             log::debug!("response timed out. retries remaining: {}", retries);
+                    break;
+                },
+                _ = async {
+                    tokio::time::sleep(timeout).await;
+                }.fuse() => {
+                    retries -= 1;
+                    log::debug!("response timed out. retries remaining: {}", retries);
 
-        //             continue;
-        //         }
-        //     }
-        // }
+                    continue;
+                }
+            }
+        }
 
-        // res
-
-        todo!()
+        res
     }
 
     async fn recv_bytes(
@@ -424,7 +423,17 @@ impl<const FRAC: u32> TransmissionProtocol for FaultyRequestAckProto<FRAC> {
         timeout: Duration,
         retries: u8,
     ) -> io::Result<(SocketAddrV4, Vec<u8>)> {
-        todo!()
+        let mut recv_buf = [0_u8; BYTE_BUF_SIZE];
+
+        let (size, addr) = sock.recv_from(&mut recv_buf).await?;
+
+        let hash = hash_primary(&&recv_buf[..size]);
+        let resp = TransmissionPacket::Ack(hash);
+
+        let ser_resp = serialize_primary(&resp).expect("serialization should not fail");
+        sock.send_to(&ser_resp, addr).await?;
+
+        Ok((sockaddr_to_v4(addr)?, recv_buf[..size].to_vec()))
     }
 }
 
@@ -461,8 +470,8 @@ impl TransmissionProtocol for DefaultProto {
     async fn recv_bytes(
         &mut self,
         sock: &UdpSocket,
-        timeout: Duration,
-        retries: u8,
+        _timeout: Duration,
+        _retries: u8,
     ) -> io::Result<(SocketAddrV4, Vec<u8>)> {
         let mut buf = [0_u8; 65535];
 
@@ -722,8 +731,6 @@ mod tests {
         let rx_handle =
             tokio::spawn(async move { rx_proto.recv_bytes(&rx_sock, timeout, retries).await });
 
-        tokio::time::sleep(Duration::from_millis(200)).await;
-
         let tx_handle = tokio::spawn(async move {
             tx_proto
                 .send_bytes(&tx_sock, tx_target, &payload_clone, timeout, retries)
@@ -746,7 +753,9 @@ mod tests {
     #[tokio::test]
     async fn test_transmission_protocols() {
         std::env::set_var("RUST_LOG", "DEBUG");
-        pretty_env_logger::init();
+        pretty_env_logger::formatted_timed_builder()
+            .parse_filters("DEBUG")
+            .init();
 
         let handshake_proto = HandshakeProto {};
 
@@ -755,6 +764,18 @@ mod tests {
 
         log::info!("testing HandshakeProto small");
         tx_rx(handshake_proto, false, Duration::from_millis(750), 5).await;
+
+        log::info!("testing DefaultProto small");
+        tx_rx(DefaultProto, false, Duration::from_millis(400), 2).await;
+
+        log::info!("testing FaultyRequestAckProto small");
+        tx_rx(
+            FaultyRequestAckProto::<10>,
+            false,
+            Duration::from_millis(400),
+            3,
+        )
+        .await;
 
         return;
     }

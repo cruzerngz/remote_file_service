@@ -26,10 +26,11 @@ async fn main() -> io::Result<()> {
         SocketAddrV4::new(args.target, args.port),
         args.request_timeout.into(),
         args.num_retries,
-        FaultyRequestAckProto::<10>,
+        HandshakeProto {},
     )
     .await?;
 
+    log::info!("starting remote invocations");
     let _ = SimpleOpsClient::say_hello(&mut manager, "new configurtation".to_string())
         .await
         .unwrap();
