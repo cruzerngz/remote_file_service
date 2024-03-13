@@ -12,16 +12,16 @@ cargo r --bin rfs_server -- --help # view help
 ```
 
 ## Overview
-This project contains an RPC-like library ([`rfs_core`](./crates/rfs_core/)) and server/client executables.
+This project contains an RPC-like library ([`rfs`](./crates/rfs/)) and server/client executables.
 The executables ([`rfs_server`](./crates/rfs_server/), [`rfs_client`](./crates/rfs_client/)) contain the following features:
 - UDP only communications
+- Implementations of [various messaging protocols](./crates/rfs_core/src/middleware.rs) with various levels of fault tolerance
 - At-most-once invocation semantics
 - At-least-once invocation semantics
-- Fault tolerance
 
 ## Implementations
 As the project imposes restrictions on what types of libraries can be used,
 the following protocols/stuff is custom:
 - arbitrary serialization/deserialization
 - request/reply formats
-- RPC, inspired by [`tarpc`](https://github.com/google/tarpc)
+- proc-macro RPC, inspired by [`tarpc`](https://github.com/google/tarpc)
