@@ -32,12 +32,10 @@ the following protocols/stuff is custom:
 ### Incorrect dispatch routing
 There may be times when dispatch matches the method signature for a method early
 and routes the payload to the wrong method handler.
-This can happen if any method signature is a prefix of another.
-
-> [!example]
-> The first method signature is a prefix of the second:
->
-> SomeInterface::method
-> SomeInterface::method_b
+This can happen if any method signature is a prefix of another:
+```
+- SomeInterface::method
+- SomeInterface::method_b
+```
 
 If this occurs, check that the [signature collision unit test](./crates/rfs/src/interfaces.rs) passes.
