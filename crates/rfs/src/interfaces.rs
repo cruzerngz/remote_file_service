@@ -8,6 +8,8 @@ use std::path::PathBuf;
 
 use rfs_core::remote_interface;
 use rfs_core::RemoteMethodSignature;
+use serde::Deserialize;
+use serde::Serialize;
 
 /// Immutable file operations are defined in this interface.
 #[remote_interface]
@@ -49,8 +51,13 @@ pub trait PrimitiveFsOps {
 
     /// Writes some bytes into a file path, returning the number of bytes written.
     ///
-    /// If the file exists, the contents will be appended to the end.
-    async fn write_append_bytes(path: String, bytes: Vec<u8>) -> usize;
+    /// Use the `mode` parameter to specify the write mode.
+    async fn write_bytes_mode(path: String, bytes: Vec<u8>, mode: FileWriteMode) -> usize;
+
+    /// Writes some bytes into a file path, returning the number of bytes written.
+    ///
+    /// If the file exists, the contents will be overwritten.
+    // async fn write_truncate_bytes(path: String, bytes: Vec<u8>) -> usize;
 
     /// Create a file at a specified path. Returns the result of the operation.
     async fn create(path: String) -> bool;
@@ -69,6 +76,19 @@ pub trait PrimitiveFsOps {
 
     /// Read the contents of a directory
     async fn read_dir(path: String) -> bool;
+}
+
+/// File write modes
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub enum FileWriteMode {
+    /// Append to the end of the file
+    Append,
+
+    /// Overwrite the file
+    Truncate,
+
+    /// Insert data at a specified offset.
+    Insert(usize),
 }
 
 /// Sanity check interface
@@ -148,7 +168,7 @@ mod tests {
             PrimitiveFsOpsReadBytes,
             PrimitiveFsOpsWriteBytes,
             PrimitiveFsOpsCreate,
-            PrimitiveFsOpsWriteAppendBytes,
+            PrimitiveFsOpsWriteBytesMode,
             PrimitiveFsOpsRemove,
             PrimitiveFsOpsRename,
             PrimitiveFsOpsMkdir,

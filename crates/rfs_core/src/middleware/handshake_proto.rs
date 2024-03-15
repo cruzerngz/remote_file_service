@@ -1,6 +1,7 @@
 //! Module for [HandshakeProto]
 #![allow(unused)]
 
+use std::fmt::Debug;
 use std::net::Ipv4Addr;
 use std::{io, net::SocketAddrV4, time::Duration};
 
@@ -334,7 +335,7 @@ impl HandshakeProto {
         let payload = TransmissionPacket::SwitchToAddress(new_addr);
         let ser_payload = serialize_primary(&payload).expect("serialization must not fail");
 
-        log::debug!("tx sending new tx address to rx: {}", new_addr);
+        log::debug!("tx sending new tx address ({})", new_addr);
 
         let (_, bytes) = Self::send_and_recv(sock, target, &ser_payload, timeout, retries).await?;
 
@@ -485,6 +486,7 @@ impl HandshakeProto {
         sock: &UdpSocket,
         target: SocketAddrV4,
         rx_data: &mut Vec<u8>,
+        timeout: Duration,
     ) -> io::Result<()> {
         let mut sequence_num = 0;
 
@@ -498,7 +500,25 @@ impl HandshakeProto {
             log::debug!("rx requesting sequence {}", sequence_num);
             let _ = sock.send_to(&ser_packet, target).await?;
 
-            let (size, _) = sock.recv_from(&mut seq_buf).await?;
+            // receive with timeout
+            let size = tokio::select! {
+                biased;
+
+                res = async {
+                    sock.recv_from(&mut seq_buf).await
+                }.fuse() => {
+                    res.and_then(|(size, _)| {
+                        Ok(size)
+                    })
+                },
+
+                _ = async {
+                    tokio::time::sleep(timeout).await
+                }.fuse() => {
+                    log::error!("timeout elapsed");
+                    continue;
+                }
+            }?;
 
             let packet: TransmissionPacket =
                 deserialize_primary(&seq_buf[..size]).map_err(|_| {
@@ -667,6 +687,7 @@ impl TransmissionProtocol for HandshakeProto {
                         &rx_sock,
                         rx_target.expect("no target to receive from"),
                         &mut rx_data,
+                        timeout,
                     )
                     .await?
                 }

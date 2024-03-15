@@ -13,7 +13,7 @@ use futures::{AsyncRead, AsyncWrite, FutureExt};
 use rfs_core::middleware::{ContextManager, TransmissionProtocol};
 use serde::{Deserialize, Serialize};
 
-use crate::interfaces::PrimitiveFsOpsClient;
+use crate::interfaces::{FileWriteMode, PrimitiveFsOpsClient};
 
 /// Errors for virtual IO
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -76,7 +76,7 @@ pub struct VirtReadDir {
 }
 
 /// Virtual file metadata
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct VirtMetadata {
     /// Last file access time
     accessed: Option<SystemTime>,
@@ -88,7 +88,7 @@ pub struct VirtMetadata {
 }
 
 /// File permissions (rwx)
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct VirtPermissions {
     read: (bool, bool, bool),
     write: (bool, bool, bool),
@@ -139,7 +139,12 @@ where
     pub async fn open<P: AsRef<Path>>(ctx: ContextManager<T>, path: P) -> std::io::Result<Self> {
         // let res = PrimitiveFsOpsClient
 
-        todo!()
+        Ok(Self {
+            ctx,
+            path: path.as_ref().to_path_buf(),
+            metadata_local: VirtMetadata::default(),
+            local_buf: Default::default(),
+        })
     }
 
     /// Return metadata from the file
@@ -170,6 +175,8 @@ where
         cx: &mut std::task::Context<'_>,
         buf: &mut [u8],
     ) -> std::task::Poll<std::io::Result<usize>> {
+        log::debug!("poll read");
+
         let path = self.as_path();
 
         let mut read_bytes = Box::pin(PrimitiveFsOpsClient::read_bytes(&mut self.ctx, path));
@@ -215,12 +222,15 @@ where
         cx: &mut std::task::Context<'_>,
         buf: &[u8],
     ) -> std::task::Poll<std::io::Result<usize>> {
+        log::debug!("poll write");
+
         let path = self.as_path();
 
-        let mut task = Box::pin(PrimitiveFsOpsClient::write_append_bytes(
+        let mut task = Box::pin(PrimitiveFsOpsClient::write_bytes_mode(
             &mut self.ctx,
             path,
             buf.to_vec(),
+            FileWriteMode::Append,
         ));
 
         match task.poll_unpin(cx) {

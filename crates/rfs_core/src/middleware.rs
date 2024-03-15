@@ -89,6 +89,7 @@ pub enum MiddlewareData {
 
     /// A size transmission. This can represent anything really.
     Size(usize),
+
     /// A no-op.
     NoOp,
 }
@@ -268,7 +269,7 @@ pub enum TransmissionPacket {
 
 /// Types that implement this trait can be plugged into [`ContextManager`] and [`Dispatcher`].
 #[async_trait]
-pub trait TransmissionProtocol: core::marker::Send + core::marker::Sync {
+pub trait TransmissionProtocol: Clone + core::marker::Send + core::marker::Sync {
     /// Send bytes to the remote. Any fault-tolerant logic should be implemented here.
     async fn send_bytes<A>(
         &mut self,
@@ -725,28 +726,6 @@ mod tests {
     use std::net::SocketAddrV4;
 
     use super::*;
-
-    /// Tests the happy path for types that implement [TransmissionProtocol]
-    #[tokio::test]
-    async fn test_send_timeout() {
-        std::env::set_var("RUST_LOG", "DEBUG");
-        pretty_env_logger::init();
-
-        // let sock = UdpSocket::bind(SocketAddrV4::new(Ipv4Addr::LOCALHOST, 0))
-        //     .await
-        //     .unwrap();
-
-        // let res = send_timeout(
-        //     &sock,
-        //     SocketAddrV4::new(Ipv4Addr::LOCALHOST, 10000),
-        //     &[10, 10, 10, 10],
-        //     Duration::from_secs(3),
-        //     3,
-        // )
-        // .await;
-
-        // assert!(matches!(res, Err(_)));
-    }
 
     #[test]
     fn test_prob() {

@@ -2,6 +2,7 @@
 
 use crate::{middleware::MiddlewareData, RemotelyInvocable};
 use std::{
+    fmt::Debug,
     io,
     net::{Ipv4Addr, SocketAddrV4},
     time::Duration,
@@ -63,24 +64,19 @@ where
         let sock = s.generate_socket().await?;
         println!("{:?}", sock);
 
-        log::debug!("establishing initial conn with remote...");
-        sock.connect(s.target_ip).await?;
-        log::debug!("establishing handshake...");
+        log::debug!("establishing initial conn with remote from {:?}", sock);
 
         let payload = MiddlewareData::Ping;
+        let ser_payload = crate::serialize(&payload).expect("serialization must not fail");
 
-        let resp = s
+        let payload_size = s
             .protocol
-            .send_bytes(
-                &sock,
-                target,
-                &crate::serialize(&payload).unwrap(),
-                timeout,
-                retries,
-            )
+            .send_bytes(&sock, target, &ser_payload, timeout, retries)
             .await?;
 
-        let (addr, data) = s.protocol.recv_bytes(&sock, timeout, retries).await?;
+        assert_eq!(payload_size, ser_payload.len());
+
+        let (_addr, data) = s.protocol.recv_bytes(&sock, timeout, retries).await?;
 
         let resp: MiddlewareData = crate::deserialize(&data).unwrap();
 
@@ -100,18 +96,23 @@ where
     }
 
     /// Send an invocation over the network, and returns the result.
-    pub async fn invoke<P: RemotelyInvocable>(&mut self, payload: P) -> Result<P, InvokeError> {
+    pub async fn invoke<P: RemotelyInvocable + Debug>(
+        &mut self,
+        payload: P,
+    ) -> Result<P, InvokeError> {
+        log::info!("invoking: {:?}", payload);
+
         // send to server and wait for a reply
         let data = payload.invoke_bytes();
 
         // for now, bind and connect on every invocation
-
-        let source = self.connect_remote().await?;
+        let source = self.generate_socket().await?;
 
         log::debug!("connected to {}", self.target_ip);
 
         let middleware_payload = MiddlewareData::Payload(data);
-        let serialized_payload = crate::serialize(&middleware_payload).expect("serialization must not fail");
+        let serialized_payload =
+            crate::serialize(&middleware_payload).expect("serialization must not fail");
 
         let _resp = self
             .protocol
@@ -125,13 +126,11 @@ where
             .await
             .map_err(|e| <InvokeError>::from(e))?;
 
-        let (addr, resp) = self
+        log::debug!("awaiting remote response on {:?}", source);
+        let (_addr, resp) = self
             .protocol
             .recv_bytes(&source, self.timeout, self.retries)
             .await?;
-
-        // response shoud come from the same IP
-        assert_eq!(self.target_ip, addr);
 
         let middleware_resp: MiddlewareData =
             crate::deserialize(&resp).map_err(|_| InvokeError::DeserializationFailed)?;
@@ -146,21 +145,6 @@ where
     /// Create and bind to a new socket, with an arbitary port
     async fn generate_socket(&self) -> io::Result<UdpSocket> {
         let sock = UdpSocket::bind(SocketAddrV4::new(self.source_ip, 0)).await?;
-
-        Ok(sock)
-    }
-
-    /// Connects a UDP socket to the remote specified in `self`
-    /// and returns it.
-    async fn connect_remote(&self) -> Result<UdpSocket, InvokeError> {
-        let sock = self
-            .generate_socket()
-            .await
-            .map_err(|_| InvokeError::RemoteConnectionFailed)?;
-
-        sock.connect(self.target_ip)
-            .await
-            .map_err(|_| InvokeError::RemoteConnectionFailed)?;
 
         Ok(sock)
     }
