@@ -11,6 +11,8 @@ use rfs_core::RemoteMethodSignature;
 use serde::Deserialize;
 use serde::Serialize;
 
+use crate::fs::VirtIOErr;
+
 /// Immutable file operations are defined in this interface.
 #[remote_interface]
 pub trait ImmutableFileOps {
@@ -19,14 +21,6 @@ pub trait ImmutableFileOps {
 
     /// List all files in the current directory
     async fn ls(path: PathBuf) -> Vec<String>;
-
-    // this is implemented by remote-interface
-    // async fn read_file_payload(payload: ImmutableFileOpsReadFile) -> Vec<u8> {
-    //      Self::read_file(
-    //          .. params
-    //      ).await
-    // }
-    // type X  = bool;
 }
 
 /// Mutable file operations are defined in this interface.
@@ -41,25 +35,35 @@ pub trait MutableFileOps {
 /// These are not meant to be invoked directly.
 #[remote_interface]
 pub trait PrimitiveFsOps {
-    /// Read some bytes from a file
-    async fn read_bytes(path: String) -> Vec<u8>;
+    /// Read the entire file
+    async fn read_all(path: String) -> Vec<u8>;
+
+    /// Read a portion of the file
+    async fn read_bytes(path: String, offset: usize, len: usize) -> Vec<u8>;
 
     /// Write a vector of bytes to a file. The file will be created if it does not exist.
     ///
     /// If the file exists, the contents of the file will be replaced by the payload.
-    async fn write_bytes(path: String, contents: Vec<u8>) -> bool;
+    async fn write_all(path: String, contents: Vec<u8>) -> bool;
 
     /// Writes some bytes into a file path, returning the number of bytes written.
     ///
     /// Use the `mode` parameter to specify the write mode.
-    async fn write_bytes_mode(path: String, bytes: Vec<u8>, mode: FileWriteMode) -> usize;
+    async fn write_bytes(
+        path: String,
+        bytes: Vec<u8>,
+        mode: FileWriteMode,
+    ) -> Result<usize, VirtIOErr>;
 
     /// Writes some bytes into a file path, returning the number of bytes written.
     ///
     /// If the file exists, the contents will be overwritten.
     // async fn write_truncate_bytes(path: String, bytes: Vec<u8>) -> usize;
 
-    /// Create a file at a specified path. Returns the result of the operation.
+    /// Create a file at a specified path.
+    ///
+    /// This will truncate any data if the file already exists.
+    /// Returns the result of the operation.
     async fn create(path: String) -> bool;
 
     /// Remove a file at a specified path. Returns the result of the operation.
@@ -76,6 +80,9 @@ pub trait PrimitiveFsOps {
 
     /// Read the contents of a directory
     async fn read_dir(path: String) -> bool;
+
+    /// Returns the size of the file in bytes.
+    async fn file_size(path: String) -> usize;
 }
 
 /// File write modes
@@ -165,10 +172,10 @@ mod tests {
     #[test]
     fn test_method_signature_collision_primitive_fs_ops() {
         check_signature_collision! {
-            PrimitiveFsOpsReadBytes,
-            PrimitiveFsOpsWriteBytes,
+            PrimitiveFsOpsReadAll,
+            PrimitiveFsOpsWriteAll,
             PrimitiveFsOpsCreate,
-            PrimitiveFsOpsWriteBytesMode,
+            PrimitiveFsOpsReadBytes,
             PrimitiveFsOpsRemove,
             PrimitiveFsOpsRename,
             PrimitiveFsOpsMkdir,

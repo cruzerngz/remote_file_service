@@ -2,6 +2,7 @@
 
 #![allow(unused)]
 use std::{
+    clone,
     fmt::Debug,
     fs::{self, FileTimes},
     io::{self, Read},
@@ -9,7 +10,7 @@ use std::{
     time::SystemTime,
 };
 
-use futures::{AsyncRead, AsyncWrite, FutureExt};
+use futures::{ready, AsyncRead, AsyncWrite, FutureExt};
 use rfs_core::middleware::{ContextManager, TransmissionProtocol};
 use serde::{Deserialize, Serialize};
 
@@ -18,8 +19,26 @@ use crate::interfaces::{FileWriteMode, PrimitiveFsOpsClient};
 /// Errors for virtual IO
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum VirtIOErr {
-    /// The
-    InvalidPath,
+    NotFound,
+    PermissionDenied,
+    ConnectionRefused,
+    ConnectionReset,
+    ConnectionAborted,
+    NotConnected,
+    AddrInUse,
+    AddrNotAvailable,
+    BrokenPipe,
+    AlreadyExists,
+    WouldBlock,
+    InvalidInput,
+    InvalidData,
+    TimedOut,
+    WriteZero,
+    Interrupted,
+    Unsupported,
+    UnexpectedEof,
+    OutOfMemory,
+    Other,
 }
 
 /// A file that resides over the network in the remote.
@@ -39,6 +58,18 @@ pub struct VirtFile<T: TransmissionProtocol> {
 
     /// The local byte buffer of the file
     local_buf: Vec<u8>,
+
+    /// Information regarding reads
+    read_info: FileReadMeta,
+}
+
+#[derive(Clone, Debug, Default)]
+struct FileReadMeta {
+    /// Current byte position
+    pos: usize,
+
+    /// Size of data in file
+    len: usize,
 }
 
 /// Open a virtual file and specify some options.
@@ -130,6 +161,7 @@ where
             metadata_local: todo!(),
             path: PathBuf::from(path.as_ref()),
             local_buf: Default::default(),
+            read_info: Default::default(),
         })
     }
 
@@ -144,6 +176,7 @@ where
             path: path.as_ref().to_path_buf(),
             metadata_local: VirtMetadata::default(),
             local_buf: Default::default(),
+            read_info: Default::default(), // this needs to contain file info
         })
     }
 
@@ -164,97 +197,27 @@ where
     fn load_contents(&mut self) -> io::Result<usize> {
         todo!()
     }
-}
 
-impl<T> AsyncRead for VirtFile<T>
-where
-    T: TransmissionProtocol,
-{
-    fn poll_read(
-        mut self: std::pin::Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-        buf: &mut [u8],
-    ) -> std::task::Poll<std::io::Result<usize>> {
-        log::debug!("poll read");
-
+    /// Read the entire file into a vector.
+    pub async fn read_bytes(&mut self) -> io::Result<Vec<u8>> {
         let path = self.as_path();
 
-        let mut read_bytes = Box::pin(PrimitiveFsOpsClient::read_bytes(&mut self.ctx, path));
+        let res = PrimitiveFsOpsClient::read_all(&mut self.ctx, path)
+            .await
+            .map_err(|e| io::Error::from(e));
 
-        match read_bytes.poll_unpin(cx) {
-            std::task::Poll::Ready(res) => match res {
-                Ok(data) => {
-                    let buffer_size = buf.len();
-                    let source_size = data.len();
-
-                    let (dest_slice, source_slice) = match buffer_size.cmp(&source_size) {
-                        std::cmp::Ordering::Less => (buf, &data[..buffer_size]),
-                        std::cmp::Ordering::Equal => (buf, data.as_slice()),
-                        std::cmp::Ordering::Greater => (&mut buf[..source_size], data.as_slice()),
-                    };
-
-                    assert_eq!(
-                        dest_slice.len(),
-                        source_slice.len(),
-                        "slices must be of the same length"
-                    );
-
-                    dest_slice.copy_from_slice(source_slice);
-
-                    std::task::Poll::Ready(Ok(dest_slice.len()))
-                }
-                Err(_e) => std::task::Poll::Ready(Err(io::Error::new(
-                    io::ErrorKind::Other,
-                    "read failed lmao",
-                ))),
-            },
-            std::task::Poll::Pending => std::task::Poll::Pending,
-        }
+        res
     }
-}
 
-impl<T> AsyncWrite for VirtFile<T>
-where
-    T: TransmissionProtocol,
-{
-    fn poll_write(
-        mut self: std::pin::Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-        buf: &[u8],
-    ) -> std::task::Poll<std::io::Result<usize>> {
-        log::debug!("poll write");
-
+    /// Write to the file from a vector of bytes.
+    pub async fn write_bytes(&mut self, bytes: &[u8], mode: FileWriteMode) -> io::Result<usize> {
         let path = self.as_path();
 
-        let mut task = Box::pin(PrimitiveFsOpsClient::write_bytes_mode(
-            &mut self.ctx,
-            path,
-            buf.to_vec(),
-            FileWriteMode::Append,
-        ));
+        let res = PrimitiveFsOpsClient::write_bytes(&mut self.ctx, path, bytes.to_vec(), mode)
+            .await
+            .map_err(|e| io::Error::from(e))?;
 
-        match task.poll_unpin(cx) {
-            std::task::Poll::Ready(res) => {
-                let output = res.map_err(|e| io::Error::new(io::ErrorKind::Other, e));
-
-                std::task::Poll::Ready(output)
-            }
-            std::task::Poll::Pending => std::task::Poll::Pending,
-        }
-    }
-
-    fn poll_flush(
-        self: std::pin::Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-    ) -> std::task::Poll<std::io::Result<()>> {
-        std::task::Poll::Ready(Ok(()))
-    }
-
-    fn poll_close(
-        self: std::pin::Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-    ) -> std::task::Poll<std::io::Result<()>> {
-        std::task::Poll::Ready(Ok(()))
+        Ok(bytes.len())
     }
 }
 
@@ -386,8 +349,37 @@ impl From<fs::Permissions> for VirtPermissions {
     }
 }
 
+impl From<io::Error> for VirtIOErr {
+    fn from(value: io::Error) -> Self {
+        match value.kind() {
+            io::ErrorKind::NotFound => Self::NotFound,
+            io::ErrorKind::PermissionDenied => Self::PermissionDenied,
+            io::ErrorKind::ConnectionRefused => Self::ConnectionRefused,
+            io::ErrorKind::ConnectionReset => Self::ConnectionReset,
+            io::ErrorKind::ConnectionAborted => Self::ConnectionAborted,
+            io::ErrorKind::NotConnected => Self::NotConnected,
+            io::ErrorKind::AddrInUse => Self::AddrInUse,
+            io::ErrorKind::AddrNotAvailable => Self::AddrNotAvailable,
+            io::ErrorKind::BrokenPipe => Self::BrokenPipe,
+            io::ErrorKind::AlreadyExists => Self::AlreadyExists,
+            io::ErrorKind::WouldBlock => Self::WouldBlock,
+            io::ErrorKind::InvalidInput => Self::InvalidInput,
+            io::ErrorKind::InvalidData => Self::InvalidData,
+            io::ErrorKind::TimedOut => Self::TimedOut,
+            io::ErrorKind::WriteZero => Self::WriteZero,
+            io::ErrorKind::Interrupted => Self::Interrupted,
+            io::ErrorKind::Unsupported => Self::Unsupported,
+            io::ErrorKind::UnexpectedEof => Self::UnexpectedEof,
+            io::ErrorKind::OutOfMemory => Self::OutOfMemory,
+            io::ErrorKind::Other => Self::Other,
+
+            _ => unimplemented!("unstable library variants not handled"),
+        }
+    }
+}
+
 mod testing {
-    use std::{fs, path::PathBuf};
+    use std::{fs, io, path::PathBuf};
 
     fn test() {
         let stuff = fs::read_dir("path").unwrap();

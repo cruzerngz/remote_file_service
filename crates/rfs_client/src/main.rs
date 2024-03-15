@@ -10,12 +10,11 @@ use args::ClientArgs;
 use clap::Parser;
 // use clap::Parser;
 use crossterm::event::{self, KeyCode, KeyEventKind};
-use futures::{AsyncReadExt, AsyncWriteExt};
-// use futures::{AsyncReadExt, AsyncWriteExt};
+use futures::{AsyncRead, AsyncReadExt, AsyncWriteExt};
 use ratatui::{backend::CrosstermBackend, style::Stylize, widgets, Terminal};
 use rfs::{
-    fs::{VirtFile, VirtOpenOptions},
-    interfaces::SimpleOpsClient,
+    fs::VirtFile,
+    interfaces::{PrimitiveFsOpsClient, SimpleOpsClient},
     middleware::*,
 };
 
@@ -47,14 +46,32 @@ async fn main() -> io::Result<()> {
 
     let mut file = VirtFile::open(manager.clone(), "remote_file.txt").await?;
 
-    let contents = rfs::fs::read_to_string(manager, "red_chips_v3.json").await?;
+    println!("file opened: {:#?}", file);
 
-    println!("file contents: {}", contents);
-    // file.write_all(b"hello world").await?;
-    // let mut contents = String::new();
-    // // file.read_to_string(&mut contents).await?;
+    // let contents = rfs::fs::read_to_string(manager, "red_chips_v3.json").await?;
 
     // println!("file contents: {}", contents);
+    // // file.write_all(b"hello world").await?;
+    let mut contents = String::new();
+    let data = file.read_bytes().await?;
+
+    println!("bytes read: {:?}", std::str::from_utf8(&data));
+
+    let _ = file
+        .write_bytes(
+            "hello world hello world\n".as_bytes(),
+            rfs::interfaces::FileWriteMode::Insert(3),
+        )
+        .await?;
+
+    // println!("file contents: {}", contents);
+
+    // let res = PrimitiveFsOpsClient::read_bytes(&mut manager, "remote_file.txt".to_string()).await?;
+
+    // println!("length of contents: {:?}", res.len());
+
+    // let mut buf = [0_u8; 1000];
+    // file.poll_read(&mut buf).await?;
 
     // let mut term = ui::init()?;
 

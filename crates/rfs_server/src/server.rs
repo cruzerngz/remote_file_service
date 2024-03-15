@@ -3,10 +3,12 @@
 
 // use crate::server::middleware::PayloadHandler;
 use rfs::{
+    fs::VirtIOErr,
     middleware::{InvokeError, PayloadHandler},
     payload_handler, RemoteMethodSignature, RemotelyInvocable,
 };
 use std::{
+    collections::HashMap,
     fs::{self, OpenOptions},
     io::Write,
     path::{Path, PathBuf},
@@ -23,6 +25,10 @@ pub struct RfsServer {
     /// The server has access to all files seen within this directory.
     /// The server deos not have access to paths outside this directory.
     pub base: PathBuf,
+
+    /// File read cache, pending transmission to clients.
+    /// This cache contains the entire contents of a file.
+    pub read_cache: HashMap<String, Vec<u8>>,
 }
 
 impl Default for RfsServer {
@@ -36,6 +42,7 @@ impl Default for RfsServer {
 
         Self {
             base: PathBuf::from(exe_dir),
+            read_cache: Default::default(),
         }
     }
 }
@@ -48,6 +55,7 @@ impl RfsServer {
                 .to_path_buf()
                 .canonicalize()
                 .expect("path must be valid"),
+            read_cache: Default::default(),
         }
     }
 
@@ -59,6 +67,19 @@ impl RfsServer {
         let pb = path.as_ref().to_path_buf();
 
         pb.into_iter().any(|segment| segment == "..")
+    }
+
+    /// Resolve the given relative path to a full path.
+    ///
+    /// Paths with 'backdirs' will not be resolved, and will return `None`.
+    fn resolve_path<P: AsRef<Path>>(&self, path: P) -> Option<PathBuf> {
+        let mut full_path = self.base.clone();
+        full_path.push(path);
+
+        match Self::contains_backdir(&full_path) {
+            true => None,
+            false => Some(full_path),
+        }
     }
 }
 
@@ -82,11 +103,13 @@ impl MutableFileOps for RfsServer {
 
 #[async_trait]
 impl PrimitiveFsOps for RfsServer {
-    async fn read_bytes(&mut self, path: String) -> Vec<u8> {
-        let mut full_path = self.base.clone();
-        full_path.push(path);
+    async fn read_all(&mut self, path: String) -> Vec<u8> {
+        let full_path = match self.resolve_path(&path) {
+            Some(p) => p,
+            None => return vec![],
+        };
 
-        log::debug!("reading file: {:?}", full_path);
+        log::debug!("reading file path: {:?}", full_path);
 
         let file = match std::fs::read(full_path) {
             Ok(s) => s,
@@ -102,7 +125,34 @@ impl PrimitiveFsOps for RfsServer {
         file
     }
 
-    async fn write_bytes(&mut self, path: String, contents: Vec<u8>) -> bool {
+    async fn read_bytes(&mut self, path: String, offset: usize, len: usize) -> Vec<u8> {
+        let data = match self.read_cache.get(&path) {
+            Some(contents) => {
+                let slice = &contents[offset..(offset + len)];
+
+                slice.to_vec()
+            }
+            None => {
+                let mut full_path = self.base.clone();
+                full_path.push(&path);
+
+                let file_data = match fs::read(full_path) {
+                    Ok(d) => d,
+                    Err(_) => return vec![],
+                };
+
+                let slice = &file_data[offset..(offset + len)];
+                let res = slice.to_vec();
+                self.read_cache.insert(path.clone(), file_data);
+
+                res
+            }
+        };
+
+        data
+    }
+
+    async fn write_all(&mut self, path: String, contents: Vec<u8>) -> bool {
         let mut full_path = self.base.clone();
         full_path.push(path);
 
@@ -112,34 +162,49 @@ impl PrimitiveFsOps for RfsServer {
         }
     }
 
-    async fn write_bytes_mode(
+    async fn write_bytes(
         &mut self,
         path: String,
         bytes: Vec<u8>,
         mode: FileWriteMode,
-    ) -> usize {
-        let mut start = self.base.clone();
-        start.push(path);
+    ) -> Result<usize, VirtIOErr> {
+        let full_path = match self.resolve_path(&path) {
+            Some(p) => p,
+            None => return Err(VirtIOErr::NotFound),
+        };
 
-        match OpenOptions::new().append(true).open(start) {
-            Ok(mut f) => match f.write_all(&bytes) {
-                Ok(num) => bytes.len(),
-                Err(e) => {
-                    log::error!("failed to write to file: {}", e);
-                    0
-                }
-            },
-            Err(e) => {
-                log::error!("file open failed: {}", e);
+        let res = match mode {
+            FileWriteMode::Append => (OpenOptions::new().append(true).open(&full_path), bytes),
+            FileWriteMode::Truncate => (
+                OpenOptions::new()
+                    .truncate(true)
+                    .write(true)
+                    .open(&full_path),
+                bytes,
+            ),
+            FileWriteMode::Insert(offset) => {
+                let curr_contents = fs::read(&full_path).map_err(|e| VirtIOErr::from(e))?;
+                let (left, right) = curr_contents.split_at(offset);
+                let mut new_contents = Vec::with_capacity(curr_contents.len() + bytes.len());
+                new_contents.extend_from_slice(left);
+                new_contents.extend_from_slice(&bytes);
+                new_contents.extend_from_slice(right);
 
-                0
+                (
+                    OpenOptions::new()
+                        .truncate(true)
+                        .write(true)
+                        .open(&full_path),
+                    new_contents,
+                )
             }
-        }
-    }
+        };
 
-    // async fn write_truncate_bytes(&mut self, path: String, bytes: Vec<u8>) -> usize {
-    //     todo!()
-    // }
+        let (mut f, data) = { (res.0.map_err(|e| VirtIOErr::from(e))?, res.1) };
+        f.write_all(&data).map_err(|e| VirtIOErr::from(e))?;
+
+        Ok(data.len())
+    }
 
     async fn create(&mut self, path: String) -> bool {
         let mut start = self.base.clone();
@@ -175,6 +240,10 @@ impl PrimitiveFsOps for RfsServer {
     }
     async fn read_dir(&mut self, path: String) -> bool {
         todo!()
+    }
+
+    async fn file_size(&mut self, path: String) -> usize {
+        0
     }
 }
 
@@ -220,11 +289,12 @@ payload_handler! {
     SimpleOpsComputeFib => SimpleOps::compute_fib_payload,
 
     // primitive ops
-    PrimitiveFsOpsReadBytes => PrimitiveFsOps::read_bytes_payload,
-    PrimitiveFsOpsWriteBytes => PrimitiveFsOps::write_bytes_payload,
+    PrimitiveFsOpsReadAll => PrimitiveFsOps::read_all_payload,
+    PrimitiveFsOpsWriteAll => PrimitiveFsOps::write_all_payload,
     PrimitiveFsOpsCreate => PrimitiveFsOps::create_payload,
     PrimitiveFsOpsRemove => PrimitiveFsOps::remove_payload,
-    PrimitiveFsOpsWriteBytesMode => PrimitiveFsOps::write_bytes_mode_payload,
+    PrimitiveFsOpsReadBytes => PrimitiveFsOps::read_bytes_payload,
+    PrimitiveFsOpsWriteBytes => PrimitiveFsOps::write_bytes_payload,
 }
 
 // #[async_trait]

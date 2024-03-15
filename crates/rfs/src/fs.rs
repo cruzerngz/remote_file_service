@@ -13,9 +13,11 @@ use crate::interfaces::PrimitiveFsOpsClient;
 
 /// Read the contents of a file to a string.
 ///
+/// Note that the contents of the file need to be valids UTF-8!
+///
 /// This can be used in place of opening a file, reading and then closing it.
 ///
-/// This function uses the primitive method [PrimitiveFsOpsClient::read] and does not
+/// This function uses the primitive method [PrimitiveFsOpsClient::read_bytes] and does not
 /// create a virtual file.
 pub async fn read_to_string<P, T>(
     mut ctx: rfs_core::middleware::ContextManager<T>,
@@ -25,7 +27,7 @@ where
     P: AsRef<Path>,
     T: TransmissionProtocol,
 {
-    let contents = PrimitiveFsOpsClient::read_bytes(
+    let contents = PrimitiveFsOpsClient::read_all(
         &mut ctx,
         path.as_ref()
             .to_str()
@@ -33,12 +35,7 @@ where
             .unwrap_or_default(),
     )
     .await
-    .map_err(|e| {
-        io::Error::new(
-            io::ErrorKind::Other,
-            format!("unable to open remote file: {}", e),
-        )
-    })?;
+    .map_err(|e| io::Error::from(e))?;
 
     let x = std::str::from_utf8(&contents)
         .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, format!("{}", e)))?;
