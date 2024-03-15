@@ -9,12 +9,12 @@ use crate::ser_de::{self, ser};
 use super::{PayloadHandler, TransmissionProtocol, BYTE_BUF_SIZE};
 use futures::lock::Mutex;
 use std::borrow::{Borrow, BorrowMut};
-use std::collections::btree_map;
+use std::collections::{btree_map, HashMap};
 use std::fmt::Debug;
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::net::{SocketAddr, SocketAddrV4};
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant, SystemTime};
 use std::{io, marker};
 use tokio::net::{ToSocketAddrs, UdpSocket};
 
@@ -39,6 +39,19 @@ where
     ///
     /// We only need the trait associated methods, so a struct instance is not required.
     protocol: T,
+
+    /// The dispatcher keeps track of duplicates to prevent reprocessing
+    duplicates: DuplicateFilter<Vec<u8>>,
+}
+
+/// A filter that keeps track of duplicate data, given a specific lifetime.
+#[derive(Debug)]
+struct DuplicateFilter<T>
+where
+    T: Hash + Debug + Clone + PartialEq + Eq,
+{
+    data: HashMap<T, Instant>,
+    lifetime: Duration,
 }
 
 impl<H, T> Dispatcher<H, T>
@@ -70,6 +83,7 @@ where
             protocol,
             timeout,
             retries,
+            duplicates: DuplicateFilter::new(timeout, retries),
         }
     }
 
@@ -104,6 +118,15 @@ where
                     log::info!("dispatch received request #{} from {}", request_num, addr);
                     log::debug!("response will be sent from {:?}", resp_sock);
 
+                    // check for duplicates
+                    let bytes_filt = match self.duplicates.process(&bytes) {
+                        Some(b) => b,
+                        None => {
+                            log::info!("skipping duplicate request #{}", request_num);
+                            continue;
+                        }
+                    };
+
                     // let socket = self.socket.clone();
                     let handler = self.handler.clone();
                     let proto = self.protocol.clone(); // proto cannot be shared
@@ -113,7 +136,13 @@ where
                     // tasks can run for an arbitrary amount of time
                     let handle = tokio::spawn(async move {
                         Self::execute_handler(
-                            addr, &bytes, resp_sock, handler, proto, timeout, retries,
+                            addr,
+                            &bytes_filt,
+                            resp_sock,
+                            handler,
+                            proto,
+                            timeout,
+                            retries,
                         )
                         .await
                     });
@@ -134,7 +163,7 @@ where
         }
     }
 
-    /// Executes the handler
+    /// Routes and executes the handler
     async fn execute_handler(
         address: SocketAddrV4,
         data: &[u8],
@@ -207,6 +236,50 @@ where
     }
 }
 
+impl<T> DuplicateFilter<T>
+where
+    T: Hash + Debug + Clone + PartialEq + Eq,
+{
+    fn new(timeout: Duration, retries: u8) -> Self {
+        Self {
+            data: Default::default(),
+            lifetime: timeout * (retries as u32),
+        }
+    }
+
+    /// Process the data and return it if it is not a duplicate
+    fn process(&mut self, data: &T) -> Option<T> {
+        /// block the data if it is a duplicate within the lifetime
+        let block = match self.data.get(data) {
+            Some(time) => {
+                if time.elapsed() > self.lifetime {
+                    self.data.insert(data.clone(), Instant::now());
+                    // Some(data)
+                    false
+                } else {
+                    true
+                }
+            }
+            None => {
+                self.data.insert(data.clone(), Instant::now());
+                false
+            }
+        };
+
+        self.prune();
+
+        match block {
+            true => None,
+            false => Some(data.clone()),
+        }
+    }
+
+    /// Clean up the data
+    fn prune(&mut self) {
+        self.data.retain(|_, time| time.elapsed() < self.lifetime);
+    }
+}
+
 /// Handle a ping request
 async fn handle_ping() -> MiddlewareData {
     MiddlewareData::Ping
@@ -252,5 +325,26 @@ mod tests {
 
             println!("{:?}", res);
         }
+    }
+
+    #[test]
+    fn test_block_duplicates() {
+        let mut filter = DuplicateFilter::new(Duration::from_millis(200), 4);
+
+        let data = vec![1, 2, 3, 4, 5];
+        let res = filter.process(&data);
+
+        assert_eq!(res, Some(data.clone()));
+
+        let res = filter.process(&data);
+        assert_eq!(res, None);
+
+        std::thread::sleep(Duration::from_millis(500));
+        let res = filter.process(&data);
+        assert_eq!(res, None);
+
+        std::thread::sleep(Duration::from_millis(500));
+        let res = filter.process(&data);
+        assert_eq!(res, Some(data.clone()));
     }
 }

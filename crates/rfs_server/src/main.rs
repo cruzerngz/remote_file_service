@@ -10,7 +10,7 @@ use std::{
 
 use clap::Parser;
 use futures::FutureExt;
-use rfs::middleware::{DefaultProto, Dispatcher, HandshakeProto};
+use rfs::middleware::{DefaultProto, Dispatcher, HandshakeProto, TransmissionProtocol};
 
 use crate::{args::ServerArgs, server::RfsServer};
 
@@ -40,6 +40,27 @@ async fn main() {
         rfs::defaults::DEFAULT_RETRIES,
     )
     .await;
+
+    let x: bool;
+
+    // let mut d: Box<Dispatcher<RfsServer, dyn TransmissionProtocol>> = match x {
+    //     true => Box::new(Dispatcher::new(
+    //         addr,
+    //         server,
+    //         HandshakeProto {},
+    //         args.sequential,
+    //         args.request_timeout.into(),
+    //         rfs::defaults::DEFAULT_RETRIES,
+    //     ).await),
+    //     false => Box::new(Dispatcher::new(
+    //         addr,
+    //         server,
+    //         DefaultProto,
+    //         args.sequential,
+    //         args.request_timeout.into(),
+    //         rfs::defaults::DEFAULT_RETRIES,
+    //     ).await),
+    // };
 
     dispatcher.dispatch().await;
 

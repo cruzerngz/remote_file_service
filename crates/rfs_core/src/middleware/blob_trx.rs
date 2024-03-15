@@ -1,5 +1,7 @@
 //! This module contains the structs and related items
 //! for transmitting large blobs of data over UDP.
+//! currently NOT USED.
+
 #![allow(unused)]
 
 use std::{

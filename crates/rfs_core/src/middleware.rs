@@ -271,16 +271,16 @@ pub enum TransmissionPacket {
 #[async_trait]
 pub trait TransmissionProtocol: Clone + core::marker::Send + core::marker::Sync {
     /// Send bytes to the remote. Any fault-tolerant logic should be implemented here.
-    async fn send_bytes<A>(
+    async fn send_bytes(
         &mut self,
         sock: &UdpSocket,
-        target: A,
+        target: SocketAddrV4,
         payload: &[u8],
         timeout: Duration,
         retries: u8,
-    ) -> io::Result<usize>
-    where
-        A: ToSocketAddrs + std::marker::Send + std::marker::Sync;
+    ) -> io::Result<usize>;
+    // where
+    //     A: ToSocketAddrs + std::marker::Send + std::marker::Sync;
 
     /// Wait for a UDP packet. Returns the packet source and data.
     async fn recv_bytes(
@@ -311,16 +311,16 @@ pub struct RequestAckProto;
 
 #[async_trait]
 impl TransmissionProtocol for RequestAckProto {
-    async fn send_bytes<A>(
+    async fn send_bytes(
         &mut self,
         sock: &UdpSocket,
-        target: A,
+        target: SocketAddrV4,
         payload: &[u8],
         timeout: Duration,
         mut retries: u8,
     ) -> io::Result<usize>
-    where
-        A: ToSocketAddrs + std::marker::Send + std::marker::Sync,
+// where
+    //     A: ToSocketAddrs + std::marker::Send + std::marker::Sync,
     {
         let mut res: io::Result<usize> = Err(io::Error::new(
             io::ErrorKind::TimedOut,
@@ -407,16 +407,16 @@ pub struct FaultyRequestAckProto<const FRAC: u32>;
 
 #[async_trait]
 impl<const FRAC: u32> TransmissionProtocol for FaultyRequestAckProto<FRAC> {
-    async fn send_bytes<A>(
+    async fn send_bytes(
         &mut self,
         sock: &UdpSocket,
-        target: A,
+        target: SocketAddrV4,
         payload: &[u8],
         timeout: Duration,
         mut retries: u8,
     ) -> io::Result<usize>
-    where
-        A: ToSocketAddrs + std::marker::Send + std::marker::Sync,
+// where
+    //     A: ToSocketAddrs + std::marker::Send + std::marker::Sync,
     {
         let mut res: io::Result<usize> = Err(io::Error::new(
             io::ErrorKind::TimedOut,
@@ -516,16 +516,16 @@ pub struct DefaultProto;
 
 #[async_trait]
 impl TransmissionProtocol for DefaultProto {
-    async fn send_bytes<A>(
+    async fn send_bytes(
         &mut self,
         sock: &UdpSocket,
-        target: A,
+        target: SocketAddrV4,
         payload: &[u8],
         _timeout: Duration,
         _retries: u8,
     ) -> io::Result<usize>
-    where
-        A: ToSocketAddrs + std::marker::Send + std::marker::Sync,
+// where
+    //     A: ToSocketAddrs + std::marker::Send + std::marker::Sync,
     {
         sock.send_to(payload, target).await
     }
@@ -788,7 +788,13 @@ mod tests {
 
         let tx_handle = tokio::spawn(async move {
             tx_proto
-                .send_bytes(&tx_sock, tx_target, &payload_clone, timeout, retries)
+                .send_bytes(
+                    &tx_sock,
+                    sockaddr_to_v4(tx_target)?,
+                    &payload_clone,
+                    timeout,
+                    retries,
+                )
                 .await
         });
 

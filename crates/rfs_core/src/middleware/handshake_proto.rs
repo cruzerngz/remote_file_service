@@ -10,7 +10,6 @@ use futures::FutureExt;
 use tokio::net::{ToSocketAddrs, UdpSocket};
 
 use crate::fsm::TransitableState;
-use crate::ser_de::ByteViewer;
 use crate::{fsm, middleware::sockaddr_to_v4};
 
 use super::{deserialize_primary, serialize_primary, TransmissionProtocol};
@@ -24,11 +23,6 @@ use super::{hash_primary, TransmissionPacket};
 #[derive(Clone, Debug)]
 pub struct HandshakeProto {
     // rx_state: HandshakeRx, // marker: marker::PhantomData<P>,
-}
-
-#[async_trait]
-trait PerformStateAction {
-    async fn perform_action(&self);
 }
 
 /// Transmitter states
@@ -183,83 +177,6 @@ impl HandshakeProto {
                 }
 
             }
-        }
-    }
-
-    /// Sends a packet out with a given sequence number.
-    /// The same packet will be continuously sent until the receiver has acknowledged the sequence number
-    /// and sent a reply. The last packet is handled differently than the others.
-    ///
-    /// The same restrictions from `send_and_recv` apply here.
-    ///
-    /// Retries apply for both sequence number.
-    async fn send_and_recv_sequence<A: ToSocketAddrs>(
-        sock: &UdpSocket,
-        sequence_number: u32,
-        last: bool,
-        target: A,
-        payload: &[u8],
-        timeout: Duration,
-        retries: u8,
-    ) -> io::Result<()> {
-        // Self::send_bytes(sock, target, payload, timeout, retries)
-
-        let mut outer_retries = retries;
-
-        loop {
-            if outer_retries == 0 {
-                break Err(io::Error::new(
-                    io::ErrorKind::TimedOut,
-                    "max retries exceeded",
-                ));
-            }
-
-            let hash = hash_primary(&payload);
-
-            let packet = TransmissionPacket::Data {
-                seq: sequence_number,
-                hash,
-                data: payload.to_vec(),
-                last,
-            };
-
-            let ser_packet = serialize_primary(&packet).expect("serialization must not fail");
-
-            let (_, resp) =
-                Self::send_and_recv(sock, &target, &ser_packet, timeout, retries).await?;
-
-            let payload: TransmissionPacket = deserialize_primary(&resp).map_err(|_| {
-                io::Error::new(io::ErrorKind::InvalidData, "deserialization failed")
-            })?;
-
-            match (last, payload) {
-                // return after ack
-                (false, TransmissionPacket::Seq(num)) => {
-                    match num as i32 - sequence_number as i32 {
-                        0 => (), // retry transmission
-                        1 => break Ok(()),
-                        other => {
-                            break Err(io::Error::new(
-                                io::ErrorKind::InvalidInput,
-                                format!(
-                                    "invalid sequence number. expected {}, got {}",
-                                    sequence_number + 1,
-                                    other
-                                ),
-                            ))
-                        }
-                    }
-                }
-
-                // last packet acknowledged, final ack
-                (true, TransmissionPacket::Complete) => {
-                    break Self::transmit_final_ack(sock, target, timeout, retries).await
-                }
-
-                _ => (),
-            }
-
-            outer_retries -= 1;
         }
     }
 
@@ -594,16 +511,16 @@ impl HandshakeProto {
 
 #[async_trait]
 impl TransmissionProtocol for HandshakeProto {
-    async fn send_bytes<A>(
+    async fn send_bytes(
         &mut self,
         sock: &UdpSocket,
-        target: A,
+        target: SocketAddrV4,
         payload: &[u8],
         timeout: Duration,
         retries: u8,
     ) -> io::Result<usize>
-    where
-        A: ToSocketAddrs + std::marker::Send + std::marker::Sync,
+// where
+    //     A: ToSocketAddrs + std::marker::Send + std::marker::Sync,
     {
         // first we will switch target sockets so that we don't block the main process
         // from receiving requests
