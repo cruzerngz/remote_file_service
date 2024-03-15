@@ -23,10 +23,15 @@ pub(crate) struct ServerArgs {
     /// The starting directory the server will attach itself to.
     #[clap(short, long)]
     #[clap(default_value = PathBuf::from(std::env::current_dir().unwrap()).into_os_string())]
-    pub start_dir: PathBuf,
+    pub directory: PathBuf,
 
     /// The timeout duration
     #[clap(short, long)]
     #[clap(default_value = rfs::defaults::DEFAULT_TIMEOUT)]
     pub request_timeout: humantime::Duration,
+
+    /// Process requests sequentially instead of in parallel.
+    #[clap(short, long)]
+    #[clap(default_value_t = false)]
+    pub sequential: bool,
 }

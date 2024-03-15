@@ -16,13 +16,17 @@ use crate::{args::ServerArgs, server::RfsServer};
 
 #[tokio::main]
 async fn main() {
-    std::env::set_var("RUST_LOG", "DEBUG");
+    match std::env::var("RUST_LOG") {
+        Ok(_) => (),
+        Err(_) => std::env::set_var("RUST_LOG", "DEBUG"),
+    }
+
     pretty_env_logger::formatted_timed_builder()
-        .parse_filters(&std::env::var("RUST_LOG").unwrap_or_default())
+        .parse_filters(&std::env::var("RUST_LOG").expect("RUST_LOG environment variable not set"))
         .init();
 
     let args = ServerArgs::parse();
-    let server = RfsServer::from_path(args.start_dir);
+    let server = RfsServer::from_path(args.directory);
     let addr = SocketAddrV4::new(args.address, args.port);
 
     log::info!("server listening on {}", addr);
@@ -31,6 +35,7 @@ async fn main() {
         addr,
         server,
         HandshakeProto {},
+        args.sequential,
         args.request_timeout.into(),
         rfs::defaults::DEFAULT_RETRIES,
     )

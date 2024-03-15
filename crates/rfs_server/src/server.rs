@@ -112,7 +112,12 @@ impl PrimitiveFsOps for RfsServer {
         }
     }
 
-    async fn write_append_bytes(&mut self, path: String, bytes: Vec<u8>) -> usize {
+    async fn write_bytes_mode(
+        &mut self,
+        path: String,
+        bytes: Vec<u8>,
+        mode: FileWriteMode,
+    ) -> usize {
         let mut start = self.base.clone();
         start.push(path);
 
@@ -131,6 +136,10 @@ impl PrimitiveFsOps for RfsServer {
             }
         }
     }
+
+    // async fn write_truncate_bytes(&mut self, path: String, bytes: Vec<u8>) -> usize {
+    //     todo!()
+    // }
 
     async fn create(&mut self, path: String) -> bool {
         let mut start = self.base.clone();
@@ -206,6 +215,7 @@ payload_handler! {
     // ImmutableFileOpsReadFile => ImmutableFileOps::read_file_payload,
     // MutableFileOpsCreateFile => MutableFileOps::create_file_payload,
 
+    // sanity check interface
     SimpleOpsSayHello => SimpleOps::say_hello_payload,
     SimpleOpsComputeFib => SimpleOps::compute_fib_payload,
 
@@ -214,7 +224,7 @@ payload_handler! {
     PrimitiveFsOpsWriteBytes => PrimitiveFsOps::write_bytes_payload,
     PrimitiveFsOpsCreate => PrimitiveFsOps::create_payload,
     PrimitiveFsOpsRemove => PrimitiveFsOps::remove_payload,
-    PrimitiveFsOpsWriteAppendBytes => PrimitiveFsOps::write_append_bytes_payload,
+    PrimitiveFsOpsWriteBytesMode => PrimitiveFsOps::write_bytes_mode_payload,
 }
 
 // #[async_trait]
