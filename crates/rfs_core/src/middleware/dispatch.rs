@@ -41,7 +41,8 @@ where
     protocol: T,
 
     /// The dispatcher keeps track of duplicates to prevent reprocessing
-    duplicates: Arc<Mutex<DuplicateFilter>>,
+    dup_filter: Arc<Mutex<DuplicateFilter>>,
+    use_filter: bool,
 }
 
 /// A filter that keeps track of duplicate data, given a specific lifetime.
@@ -67,6 +68,7 @@ where
         sequential: bool,
         timeout: Duration,
         retries: u8,
+        use_filter: bool,
     ) -> Self {
         let socket = UdpSocket::bind(addr)
             .await
@@ -81,7 +83,8 @@ where
             protocol,
             timeout,
             retries,
-            duplicates: Arc::new(Mutex::new(DuplicateFilter::new(timeout, retries))),
+            dup_filter: Arc::new(Mutex::new(DuplicateFilter::new(timeout, retries))),
+            use_filter,
         }
     }
 
@@ -120,12 +123,14 @@ where
                     let proto = self.protocol.clone(); // proto cannot be shared
                     let timeout = self.timeout.clone();
                     let retries = self.retries.clone();
-                    let filter = self.duplicates.clone();
+                    let filter = self.dup_filter.clone();
+                    let use_filter = self.use_filter;
 
                     // tasks can run for an arbitrary amount of time
                     let handle = tokio::spawn(async move {
                         Self::execute_handler(
-                            addr, &bytes, resp_sock, handler, filter, proto, timeout, retries,
+                            addr, &bytes, resp_sock, handler, filter, use_filter, proto, timeout,
+                            retries,
                         )
                         .await
                     });
@@ -153,6 +158,7 @@ where
         socket: UdpSocket,
         handler: Arc<Mutex<H>>,
         filter: Arc<Mutex<DuplicateFilter>>,
+        enable_filter: bool,
         mut protocol: T,
         timeout: Duration,
         retries: u8,

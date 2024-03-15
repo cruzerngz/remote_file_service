@@ -38,6 +38,7 @@ async fn main() {
         args.sequential,
         args.request_timeout.into(),
         rfs::defaults::DEFAULT_RETRIES,
+        !args.allow_duplicates,
     )
     .await;
 

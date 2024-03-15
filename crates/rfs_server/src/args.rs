@@ -31,7 +31,11 @@ pub(crate) struct ServerArgs {
     pub request_timeout: humantime::Duration,
 
     /// Process requests sequentially instead of in parallel.
-    #[clap(short, long)]
-    #[clap(default_value_t = false)]
+    #[clap(long)]
     pub sequential: bool,
+
+    /// Do not filter duplicate requests
+    #[clap(long)]
+    #[clap(default_value_t = true)]
+    pub allow_duplicates: bool,
 }
