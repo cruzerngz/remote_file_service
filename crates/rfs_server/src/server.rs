@@ -120,8 +120,6 @@ impl PrimitiveFsOps for RfsServer {
             }
         };
 
-        log::debug!("file contents: {:?}", file);
-
         file
     }
 

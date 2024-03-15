@@ -61,6 +61,8 @@ where
             protocol,
         };
 
+        // Ok(s)
+
         let sock = s.generate_socket().await?;
         println!("{:?}", sock);
 

@@ -16,7 +16,7 @@ use std::net::{SocketAddr, SocketAddrV4};
 use std::sync::Arc;
 use std::time::Duration;
 use std::{fmt::Debug, io, net::Ipv4Addr};
-use tokio::net::{ToSocketAddrs, UdpSocket};
+use tokio::net::UdpSocket;
 
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
@@ -61,6 +61,9 @@ pub enum InvokeError {
 
     /// Invalid data
     InvalidData,
+
+    /// The request is a duplicate
+    DuplicateRequest,
 }
 
 /// Middleware-specific data sent between the context manager and the dispatcher
@@ -608,6 +611,9 @@ impl From<InvokeError> for io::Error {
                 io::Error::new(io::ErrorKind::BrokenPipe, "remote receive error")
             }
             InvokeError::InvalidData => io::Error::new(io::ErrorKind::InvalidData, "invalid data"),
+            InvokeError::DuplicateRequest => {
+                io::Error::new(io::ErrorKind::Interrupted, "duplicate request")
+            }
         }
     }
 }

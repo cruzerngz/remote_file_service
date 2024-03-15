@@ -2,7 +2,6 @@
 //!
 //! All traits have [`remote_interface`] attribute and only contain async functions.
 
-use std::io;
 use std::net::SocketAddrV4;
 use std::path::PathBuf;
 

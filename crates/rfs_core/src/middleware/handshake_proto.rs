@@ -616,7 +616,6 @@ impl TransmissionProtocol for HandshakeProto {
             }
         }
 
-        // let dummy_addr = rx_target.expect("no target to receive from");
         return Ok((rx_source, rx_data));
     }
 }

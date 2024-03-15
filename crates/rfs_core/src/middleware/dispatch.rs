@@ -41,16 +41,14 @@ where
     protocol: T,
 
     /// The dispatcher keeps track of duplicates to prevent reprocessing
-    duplicates: DuplicateFilter<Vec<u8>>,
+    duplicates: Arc<Mutex<DuplicateFilter>>,
 }
 
 /// A filter that keeps track of duplicate data, given a specific lifetime.
 #[derive(Debug)]
-struct DuplicateFilter<T>
-where
-    T: Hash + Debug + Clone + PartialEq + Eq,
-{
-    data: HashMap<T, Instant>,
+struct DuplicateFilter {
+    /// Request (source + data) is the key and response (data + time) is the value
+    data: HashMap<(SocketAddrV4, Vec<u8>), (Instant, Vec<u8>)>,
     lifetime: Duration,
 }
 
@@ -83,7 +81,7 @@ where
             protocol,
             timeout,
             retries,
-            duplicates: DuplicateFilter::new(timeout, retries),
+            duplicates: Arc::new(Mutex::new(DuplicateFilter::new(timeout, retries))),
         }
     }
 
@@ -115,34 +113,19 @@ where
             {
                 // spawn resp in separate thread
                 Ok((addr, bytes)) => {
-                    log::info!("dispatch received request #{} from {}", request_num, addr);
+                    log::info!("received request #{} from {}", request_num, addr);
                     log::debug!("response will be sent from {:?}", resp_sock);
 
-                    // check for duplicates
-                    let bytes_filt = match self.duplicates.process(&bytes) {
-                        Some(b) => b,
-                        None => {
-                            log::info!("skipping duplicate request #{}", request_num);
-                            continue;
-                        }
-                    };
-
-                    // let socket = self.socket.clone();
                     let handler = self.handler.clone();
                     let proto = self.protocol.clone(); // proto cannot be shared
                     let timeout = self.timeout.clone();
                     let retries = self.retries.clone();
+                    let filter = self.duplicates.clone();
 
                     // tasks can run for an arbitrary amount of time
                     let handle = tokio::spawn(async move {
                         Self::execute_handler(
-                            addr,
-                            &bytes_filt,
-                            resp_sock,
-                            handler,
-                            proto,
-                            timeout,
-                            retries,
+                            addr, &bytes, resp_sock, handler, filter, proto, timeout, retries,
                         )
                         .await
                     });
@@ -169,6 +152,7 @@ where
         data: &[u8],
         socket: UdpSocket,
         handler: Arc<Mutex<H>>,
+        filter: Arc<Mutex<DuplicateFilter>>,
         mut protocol: T,
         timeout: Duration,
         retries: u8,
@@ -183,10 +167,28 @@ where
         log::debug!("packet has stuff");
         log::debug!("packet contents: {:?}", data);
 
+        // check for duplicates
+        let filter_read_lock = filter.lock().await;
+        match filter_read_lock.find(address, data) {
+            Some(cached_resp) => {
+                log::info!("received duplicate request from {}", address,);
+
+                // send the result
+                let sent_bytes = protocol
+                    .send_bytes(&socket, address, &cached_resp, timeout, retries)
+                    .await;
+
+                return;
+            }
+            None => (),
+        }
+
+        drop(filter_read_lock);
+
         // send an ack back
         // T::send_ack(&self.socket, addr, copy).await;
 
-        let data: MiddlewareData = match crate::deserialize(&data) {
+        let middle_data: MiddlewareData = match crate::deserialize(&data) {
             Ok(d) => d,
             Err(e) => {
                 log::error!("deserialization failed: {:?}", e);
@@ -197,12 +199,14 @@ where
 
         let mut handler_lock = handler.lock().await;
 
-        let middlware_response = match data {
+        let middlware_response = match middle_data {
             MiddlewareData::Ping => handle_ping().await,
             MiddlewareData::Payload(payload) => match handler_lock.handle_payload(&payload).await {
                 Ok(res) => MiddlewareData::Payload(res),
                 Err(e) => MiddlewareData::Error(e),
             },
+
+            // branch currently not used
             MiddlewareData::Callback(call) => handle_callback(&call).await,
 
             // errors are client-side only
@@ -218,7 +222,7 @@ where
                 return;
             }
 
-            _ => todo!(),
+            _ => unimplemented!("other middleware variants are not handled by the dispatcher"),
         };
 
         drop(handler_lock);
@@ -233,55 +237,55 @@ where
             .await;
 
         log::debug!("sent {:?} bytes to {}", sent_bytes, address);
+
+        // add to cache
+        let mut filter_lock = filter.lock().await;
+        filter_lock.insert(address, data, serialized_response.clone());
     }
 }
 
-impl<T> DuplicateFilter<T>
-where
-    T: Hash + Debug + Clone + PartialEq + Eq,
-{
+impl DuplicateFilter {
     fn new(timeout: Duration, retries: u8) -> Self {
         Self {
             data: Default::default(),
-            lifetime: timeout * (retries as u32),
+            // very generous lifetime
+            lifetime: timeout * (retries as u32) * 4,
         }
     }
 
-    /// Process the data and return it if it is not a duplicate
-    fn process(&mut self, data: &T) -> Option<T> {
-        /// block the data if it is a duplicate within the lifetime
-        let block = match self.data.get(data) {
-            Some(time) => {
+    /// Given a request, find the response if it exists
+    /// and is within the configured lifetime.
+    fn find(&self, source: SocketAddrV4, request: &[u8]) -> Option<&[u8]> {
+        match self.data.get(&(source, request.to_owned())) {
+            Some((time, resp)) => {
                 if time.elapsed() > self.lifetime {
-                    self.data.insert(data.clone(), Instant::now());
-                    // Some(data)
-                    false
+                    None
                 } else {
-                    true
+                    Some(&resp)
                 }
             }
-            None => {
-                self.data.insert(data.clone(), Instant::now());
-                false
-            }
-        };
+            None => None,
+        }
+    }
 
+    /// Insert a new request and response into the filter
+    fn insert(&mut self, source: SocketAddrV4, request: &[u8], response: Vec<u8>) {
         self.prune();
 
-        match block {
-            true => None,
-            false => Some(data.clone()),
-        }
+        self.data
+            .insert((source, request.to_vec()), (Instant::now(), response));
     }
 
     /// Clean up the data
     fn prune(&mut self) {
-        self.data.retain(|_, time| time.elapsed() < self.lifetime);
+        self.data
+            .retain(|_, (time, _)| time.elapsed() < self.lifetime);
     }
 }
 
 /// Handle a ping request
 async fn handle_ping() -> MiddlewareData {
+    log::info!("{:?}", MiddlewareData::Ping);
     MiddlewareData::Ping
 }
 
@@ -329,22 +333,27 @@ mod tests {
 
     #[test]
     fn test_block_duplicates() {
-        let mut filter = DuplicateFilter::new(Duration::from_millis(200), 4);
+        let mut filter = DuplicateFilter::new(Duration::from_millis(50), 2);
 
+        let dummy_addr = SocketAddrV4::new(std::net::Ipv4Addr::LOCALHOST, 0);
+        let dummy_resp = vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
         let data = vec![1, 2, 3, 4, 5];
-        let res = filter.process(&data);
 
-        assert_eq!(res, Some(data.clone()));
-
-        let res = filter.process(&data);
+        let res = filter.find(dummy_addr, &data);
         assert_eq!(res, None);
 
-        std::thread::sleep(Duration::from_millis(500));
-        let res = filter.process(&data);
-        assert_eq!(res, None);
+        filter.insert(dummy_addr, &data, dummy_resp.to_owned());
 
-        std::thread::sleep(Duration::from_millis(500));
-        let res = filter.process(&data);
-        assert_eq!(res, Some(data.clone()));
+        let res = filter.find(dummy_addr, &data);
+        assert_eq!(res, Some(dummy_resp.as_slice()));
+
+        std::thread::sleep(Duration::from_millis(300));
+
+        let res = filter.find(dummy_addr, &data);
+        assert_eq!(res, Some(dummy_resp.as_slice()));
+
+        std::thread::sleep(Duration::from_millis(200));
+        let res = filter.find(dummy_addr, &data);
+        assert_eq!(res, None);
     }
 }
