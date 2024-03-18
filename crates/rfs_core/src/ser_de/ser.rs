@@ -65,8 +65,8 @@ impl<'a> ser::Serializer for &'a mut RfsSerializer {
         self.output.push(consts::PREFIX_BOOL);
 
         match v {
-            true => self.output.push(u8::MAX),
-            false => self.output.push(u8::MIN),
+            true => self.output.push(consts::BOOL_TRUE),
+            false => self.output.push(consts::BOOL_FALSE),
         }
 
         Ok(())
