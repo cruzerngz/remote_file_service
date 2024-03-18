@@ -295,13 +295,13 @@ async fn handle_ping() -> MiddlewareData {
     MiddlewareData::Ping
 }
 
-/// Handle remote invocations
-async fn handle_payload<H: PayloadHandler>(handler: &mut H, payload: &[u8]) -> MiddlewareData {
-    match handler.handle_payload(payload).await {
-        Ok(res) => MiddlewareData::Payload(res),
-        Err(e) => MiddlewareData::Error(e),
-    }
-}
+// /// Handle remote invocations
+// async fn handle_payload<H: PayloadHandler>(handler: &mut H, payload: &[u8]) -> MiddlewareData {
+//     match handler.handle_payload(payload).await {
+//         Ok(res) => MiddlewareData::Payload(res),
+//         Err(e) => MiddlewareData::Error(e),
+//     }
+// }
 
 /// Handle callbacks (not used atm)
 async fn handle_callback(call: &[u8]) -> MiddlewareData {

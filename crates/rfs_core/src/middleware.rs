@@ -180,7 +180,7 @@ pub trait SocketProvider: core::marker::Send + core::marker::Sync {
 
 /// This macro implements [`PayloadHandler`] with a specified number of routes.
 ///
-/// ```no
+/// ```ignore
 /// /// Server definition (and any fields)
 /// #[derive(Debug)]
 /// pub struct Server;
