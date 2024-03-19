@@ -1,6 +1,8 @@
 //! Server definition and implementations
 #![allow(unused)]
 
+mod callbacks;
+
 use futures::{channel::mpsc, SinkExt, StreamExt};
 // use crate::server::middleware::PayloadHandler;
 use rfs::{
@@ -20,6 +22,7 @@ use std::{
 };
 
 use async_trait::async_trait;
+pub use callbacks::*;
 use rfs::interfaces::*;
 
 #[derive(Debug)]
@@ -42,18 +45,7 @@ pub struct RfsServer {
 
 #[derive(Debug)]
 pub struct FileUpdateCallback {
-    /// The return address to send the update back to.
-    return_addr: SocketAddrV4,
-
-    /// Synchro primitive that unblocks the waiting dispatch thread.
-    chan: mpsc::Sender<Arc<FileUpdate>>,
-}
-
-impl FileUpdateCallback {
-    /// Sends the updated file contents
-    async fn send_update(&mut self, data: Arc<FileUpdate>) {
-        self.chan.send(data).await;
-    }
+    addr: SocketAddrV4,
 }
 
 impl Default for RfsServer {
@@ -120,25 +112,6 @@ impl RfsServer {
         let relative = full.strip_prefix(&self.base).ok()?;
 
         Some(relative.to_path_buf())
-    }
-
-    /// Searches for the file update callbacks and triggers them, if any.
-    ///
-    /// Returns the number of callbacks triggered.
-    async fn trigger_file_update(&mut self, path: &str, contents: FileUpdate) -> Option<NonZeroU8> {
-        let relative_path = self.resolve_relative_path(&path)?.to_str()?.to_string();
-
-        let callbacks = self.file_upd_callbacks.remove(&relative_path)?;
-
-        let callback_data = Arc::new(contents.to_owned());
-        let num_targets = callbacks.len();
-
-        // unblocks dispatch thread(s)
-        for mut cb in callbacks {
-            cb.send_update(callback_data.clone()).await
-        }
-
-        NonZeroU8::new(num_targets as u8)
     }
 }
 
@@ -213,10 +186,25 @@ impl PrimitiveFsOps for RfsServer {
         let mut full_path = self.base.clone();
         full_path.push(&path);
 
-        let num_triggered = self
-            .trigger_file_update(&path, FileUpdate::Overwrite(contents.clone()))
+        let relative_path = full_path
+            .strip_prefix(&self.base)
+            .unwrap()
+            .to_str()
+            .unwrap();
+
+        let mut lock = FILE_UPDATE_CALLBACKS
+            .get()
+            .expect("must be initialized")
+            .lock()
             .await;
-        log::debug!("triggered {:?} callbacks", num_triggered);
+
+        let num_triggered = lock
+            .trigger_file_update(&relative_path, FileUpdate::Overwrite(contents.clone()))
+            .await;
+
+        if let Some(num) = num_triggered {
+            log::info!("triggered callbacks: {:?} ", num);
+        }
 
         match fs::write(full_path, contents) {
             Ok(_) => true,
@@ -251,11 +239,19 @@ impl PrimitiveFsOps for RfsServer {
             ),
             FileWriteMode::Insert(offset) => {
                 let curr_contents = fs::read(&full_path).map_err(|e| VirtIOErr::from(e))?;
-                let (left, right) = curr_contents.split_at(offset);
-                let mut new_contents = Vec::with_capacity(curr_contents.len() + bytes.len());
-                new_contents.extend_from_slice(left);
-                new_contents.extend_from_slice(&bytes);
-                new_contents.extend_from_slice(right);
+                let mut new_contents = match curr_contents.len() {
+                    0 => bytes.clone(),
+                    _ => {
+                        let (left, right) = curr_contents.split_at(offset);
+
+                        let mut constructed = Vec::with_capacity(curr_contents.len() + bytes.len());
+                        constructed.extend_from_slice(left);
+                        constructed.extend_from_slice(&bytes);
+                        constructed.extend_from_slice(right);
+
+                        constructed
+                    }
+                };
 
                 (
                     OpenOptions::new()
@@ -271,8 +267,23 @@ impl PrimitiveFsOps for RfsServer {
         let (mut f, data) = { (res.0.map_err(|e| VirtIOErr::from(e))?, res.1) };
         f.write_all(&data).map_err(|e| VirtIOErr::from(e))?;
 
-        let num_triggered = self.trigger_file_update(&path, res.2).await;
-        log::debug!("triggered {:?} callbacks", num_triggered);
+        let relative_path = full_path
+            .strip_prefix(&self.base)
+            .unwrap()
+            .to_str()
+            .unwrap();
+
+        let mut lock = FILE_UPDATE_CALLBACKS
+            .get()
+            .expect("must be initialized")
+            .lock()
+            .await;
+
+        let num_triggered = lock.trigger_file_update(&path, res.2).await;
+        log::info!("triggered callbacks: {:?} ", num_triggered);
+
+        // if let Some(num) = num_triggered {
+        // }
 
         Ok(data.len())
     }
@@ -355,13 +366,10 @@ impl CallbackOps for RfsServer {
         &mut self,
         path: String,
         return_addr: SocketAddrV4,
-    ) -> Result<FileUpdate, VirtIOErr> {
+    ) -> Result<(), VirtIOErr> {
         let (send, mut recv) = mpsc::channel::<Arc<FileUpdate>>(1);
 
-        let handle = FileUpdateCallback {
-            return_addr,
-            chan: send,
-        };
+        let handle = FileUpdateCallback { addr: return_addr };
 
         // get the relative path to the server's base
         let relative_path = self
@@ -371,18 +379,23 @@ impl CallbackOps for RfsServer {
             .expect("path must be valid")
             .to_string();
 
+        let mut lock = FILE_UPDATE_CALLBACKS
+            .get()
+            .expect("should be initialized")
+            .lock()
+            .await;
+
+        log::debug!("registering callback for {}", relative_path);
+
         // create a receiver and push the channel to the callback list
-        match self.file_upd_callbacks.get_mut(&relative_path) {
+        match lock.lookup.get_mut(&relative_path) {
             Some(callbacks) => callbacks.push(handle),
             None => {
-                self.file_upd_callbacks.insert(relative_path, vec![handle]);
+                lock.lookup.insert(relative_path.clone(), vec![handle]);
             }
         };
 
-        // blocks until an update is sent over the channel
-        let new_contents = recv.next().await.ok_or(VirtIOErr::UnexpectedEof)?;
-
-        Ok(new_contents.as_ref().to_owned())
+        Ok(())
     }
 }
 
@@ -403,6 +416,9 @@ payload_handler! {
     PrimitiveFsOpsRemove => PrimitiveFsOps::remove_payload,
     PrimitiveFsOpsReadBytes => PrimitiveFsOps::read_bytes_payload,
     PrimitiveFsOpsWriteBytes => PrimitiveFsOps::write_bytes_payload,
+
+    // callbacks
+    CallbackOpsRegisterFileUpdate => CallbackOps::register_file_update_payload,
 }
 
 // #[async_trait]

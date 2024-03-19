@@ -97,6 +97,12 @@ pub enum MiddlewareData {
     NoOp,
 }
 
+/// Dispatcher context, injected into each remote implementation.
+#[derive(Debug, Clone)]
+pub struct DispatcherContext {
+    source: SocketAddrV4,
+}
+
 /// Handle middleware messages, either from the client or remote.
 pub trait HandleMiddleware {
     fn handle_middleware(&self, data: MiddlewareData) -> Self;
@@ -296,7 +302,7 @@ pub trait TransmissionProtocol: Debug {
 
 /// Converts a socket address to a V4 one.
 /// V6 addresses will return an error.
-fn sockaddr_to_v4(addr: SocketAddr) -> io::Result<SocketAddrV4> {
+pub fn sockaddr_to_v4(addr: SocketAddr) -> io::Result<SocketAddrV4> {
     match addr {
         SocketAddr::V4(a) => Ok(a),
         SocketAddr::V6(_) => Err(io::Error::new(

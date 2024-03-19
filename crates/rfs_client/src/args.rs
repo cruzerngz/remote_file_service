@@ -39,6 +39,15 @@ pub struct ClientArgs {
     /// Whether to simulate a faulty network
     #[clap(long)]
     pub simulate_ommisions: bool,
+
+    /// Start the client in test mode.
+    /// This mode checks for general runtime stability and
+    /// the reliability of each transmission protocol.
+    ///
+    /// This mode sends multiple dummy requests and responses from the remote,
+    /// and returns failure statistics.
+    #[clap(long)]
+    pub test: bool,
 }
 
 #[derive(Clone, Debug, clap::ValueEnum)]

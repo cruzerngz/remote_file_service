@@ -245,6 +245,10 @@ impl<'arr> ByteViewer<'arr> {
     }
 }
 
+pub fn dbg_vec_to_chars(v: &[u8]) -> String {
+    v.iter().map(|b| *b as char).collect::<String>()
+}
+
 /// Serializing and deserializing tests
 #[cfg(test)]
 mod tests {

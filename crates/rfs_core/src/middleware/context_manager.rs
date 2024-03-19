@@ -24,9 +24,9 @@ where
 // T: TransmissionProtocol,
 {
     /// The client's IP
-    source_ip: Ipv4Addr,
+    pub source_ip: Ipv4Addr,
     /// The server's IP
-    target_ip: SocketAddrV4,
+    pub target_ip: SocketAddrV4,
 
     /// Request timeout
     pub(super) timeout: Duration,
@@ -146,10 +146,20 @@ impl ContextManager
     }
 
     /// Create and bind to a new socket, with an arbitary port
-    async fn generate_socket(&self) -> io::Result<UdpSocket> {
+    pub async fn generate_socket(&self) -> io::Result<UdpSocket> {
         let sock = UdpSocket::bind(SocketAddrV4::new(self.source_ip, 0)).await?;
 
         Ok(sock)
+    }
+
+    /// Listen on a port for a request.
+    pub async fn listen(&mut self, target: &UdpSocket) -> io::Result<Vec<u8>> {
+        let (_addr, data) = self
+            .protocol
+            .recv_bytes(target, self.timeout, self.retries)
+            .await?;
+
+        Ok(data)
     }
 
     // /// Ping the remote and waits for a response

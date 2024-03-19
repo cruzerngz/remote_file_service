@@ -6,15 +6,19 @@ use std::{
     fmt::Debug,
     fs::{self, FileTimes},
     io::{self, Read},
+    net::{SocketAddr, SocketAddrV4},
     path::{Path, PathBuf},
     time::SystemTime,
 };
 
 use futures::{ready, AsyncRead, AsyncWrite, FutureExt};
-use rfs_core::middleware::{ContextManager, TransmissionProtocol};
+use rfs_core::{
+    deserialize, deserialize_packed,
+    middleware::{ContextManager, TransmissionProtocol},
+};
 use serde::{Deserialize, Serialize};
 
-use crate::interfaces::{FileWriteMode, PrimitiveFsOpsClient};
+use crate::interfaces::{CallbackOpsClient, FileUpdate, FileWriteMode, PrimitiveFsOpsClient};
 
 /// Errors for virtual IO
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -165,14 +169,20 @@ impl VirtFile
     /// Open an existing file in read-only mode.
     ///
     /// Attempts to mirror [std::fs::File::open]
-    pub async fn open<P: AsRef<Path>>(ctx: ContextManager, path: P) -> std::io::Result<Self> {
+    pub async fn open<P: AsRef<Path>>(mut ctx: ContextManager, path: P) -> std::io::Result<Self> {
         // let res = PrimitiveFsOpsClient
 
+        let contents =
+            PrimitiveFsOpsClient::read_all(&mut ctx, path.as_ref().to_str().unwrap().to_string())
+                .await
+                .map_err(|e| io::Error::from(e))?;
+
+        // load contents into local buffer
         Ok(Self {
             ctx,
             path: path.as_ref().to_path_buf(),
             metadata_local: VirtMetadata::default(),
-            local_buf: Default::default(),
+            local_buf: contents,
             read_info: Default::default(), // this needs to contain file info
         })
     }
@@ -190,9 +200,9 @@ impl VirtFile
             .unwrap_or_default()
     }
 
-    /// Eagerly executes a read of the file contents, if any.
-    fn load_contents(&mut self) -> io::Result<usize> {
-        todo!()
+    /// Returns the locally cached file contents
+    fn local_cache(&self) -> &[u8] {
+        &self.local_buf
     }
 
     /// Read the entire file into a vector.
@@ -201,25 +211,76 @@ impl VirtFile
 
         let res = PrimitiveFsOpsClient::read_all(&mut self.ctx, path)
             .await
-            .map_err(|e| io::Error::from(e));
+            .map_err(|e| io::Error::from(e))?;
 
-        res
+        self.local_buf = res.clone();
+
+        Ok(res)
     }
 
     /// Write to the file from a vector of bytes.
     pub async fn write_bytes(&mut self, bytes: &[u8], mode: FileWriteMode) -> io::Result<usize> {
         let path = self.as_path();
 
+        let update = match mode {
+            FileWriteMode::Append => FileUpdate::Append(bytes.to_vec()),
+            FileWriteMode::Truncate => FileUpdate::Overwrite(bytes.to_vec()),
+            FileWriteMode::Insert(offset) => FileUpdate::Insert((offset, bytes.to_vec())),
+        };
+
         let res = PrimitiveFsOpsClient::write_bytes(&mut self.ctx, path, bytes.to_vec(), mode)
             .await
             .map_err(|e| io::Error::from(e))?;
+
+        // update local buf only after write request completes
+        self.local_buf = update.update_file(&self.local_buf);
 
         Ok(bytes.len())
     }
 
     /// Blocks until the file is updated. The new file contents are returned.
     pub async fn watch(&mut self) -> io::Result<Vec<u8>> {
-        todo!()
+        // this is the return socket the remote will send callbacks to
+        let ret_sock = self.ctx.generate_socket().await?;
+
+        let reg_resp = CallbackOpsClient::register_file_update(
+            &mut self.ctx,
+            self.path
+                .to_str()
+                .ok_or(io::Error::new(io::ErrorKind::InvalidInput, "invalid path"))?
+                .to_string(),
+            sockaddr_to_v4(ret_sock.local_addr()?)?,
+        )
+        .await?
+        .map_err(|e| io::Error::from(e))?;
+
+        let resp = self.ctx.listen(&ret_sock).await?;
+        log::debug!("watch triggered");
+
+        let update: FileUpdate = deserialize_packed(&resp)
+            .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, "deserialization failed"))?;
+
+        self.local_buf = update.update_file(&self.local_buf);
+
+        Ok(self.local_buf.clone())
+    }
+}
+
+// local helper method
+impl FileUpdate {
+    /// Perform the file update based on the previous file contents
+    pub fn update_file(self, prev: &[u8]) -> Vec<u8> {
+        match self {
+            FileUpdate::Append(data) => [prev, data.as_slice()].concat(),
+            FileUpdate::Insert((offset, data)) => match prev.len() {
+                0 => data,
+                _ => {
+                    let (left, right) = prev.split_at(offset);
+                    [left, data.as_slice(), right].concat()
+                }
+            },
+            FileUpdate::Overwrite(data) => data.to_owned(),
+        }
     }
 }
 
@@ -314,6 +375,18 @@ impl VirtOpenOptions
     }
 }
 
+/// Converts a socket address to a V4 one.
+/// V6 addresses will return an error.
+pub fn sockaddr_to_v4(addr: SocketAddr) -> io::Result<SocketAddrV4> {
+    match addr {
+        SocketAddr::V4(a) => Ok(a),
+        SocketAddr::V6(_) => Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "IPv6 addresses are not supported",
+        )),
+    }
+}
+
 impl VirtDirEntry {
     pub fn path(&self) -> PathBuf {
         todo!()
@@ -380,6 +453,32 @@ impl From<io::Error> for VirtIOErr {
     }
 }
 
+impl From<VirtIOErr> for io::Error {
+    fn from(value: VirtIOErr) -> Self {
+        match value {
+            VirtIOErr::NotFound => io::Error::new(io::ErrorKind::NotFound, ""),
+            VirtIOErr::PermissionDenied => io::Error::new(io::ErrorKind::PermissionDenied, ""),
+            VirtIOErr::ConnectionRefused => io::Error::new(io::ErrorKind::ConnectionRefused, ""),
+            VirtIOErr::ConnectionReset => io::Error::new(io::ErrorKind::ConnectionReset, ""),
+            VirtIOErr::ConnectionAborted => io::Error::new(io::ErrorKind::ConnectionAborted, ""),
+            VirtIOErr::NotConnected => io::Error::new(io::ErrorKind::NotConnected, ""),
+            VirtIOErr::AddrInUse => io::Error::new(io::ErrorKind::AddrInUse, ""),
+            VirtIOErr::AddrNotAvailable => io::Error::new(io::ErrorKind::AddrNotAvailable, ""),
+            VirtIOErr::BrokenPipe => io::Error::new(io::ErrorKind::BrokenPipe, ""),
+            VirtIOErr::AlreadyExists => io::Error::new(io::ErrorKind::AlreadyExists, ""),
+            VirtIOErr::WouldBlock => io::Error::new(io::ErrorKind::WouldBlock, ""),
+            VirtIOErr::InvalidInput => io::Error::new(io::ErrorKind::InvalidInput, ""),
+            VirtIOErr::InvalidData => io::Error::new(io::ErrorKind::InvalidData, ""),
+            VirtIOErr::TimedOut => io::Error::new(io::ErrorKind::TimedOut, ""),
+            VirtIOErr::WriteZero => io::Error::new(io::ErrorKind::WriteZero, ""),
+            VirtIOErr::Interrupted => io::Error::new(io::ErrorKind::Interrupted, ""),
+            VirtIOErr::Unsupported => io::Error::new(io::ErrorKind::Unsupported, ""),
+            VirtIOErr::UnexpectedEof => io::Error::new(io::ErrorKind::UnexpectedEof, ""),
+            VirtIOErr::OutOfMemory => io::Error::new(io::ErrorKind::OutOfMemory, ""),
+            VirtIOErr::Other => io::Error::new(io::ErrorKind::Other, ""),
+        }
+    }
+}
 mod testing {
     use std::{fs, io, path::PathBuf};
 

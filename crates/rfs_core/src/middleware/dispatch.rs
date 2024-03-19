@@ -37,7 +37,7 @@ where
     /// Message passing protocol. Acts as a transport layer.
     ///
     /// We only need the trait associated methods, so a struct instance is not required.
-    protocol: Arc<dyn TransmissionProtocol + Send + Sync>,
+    pub protocol: Arc<dyn TransmissionProtocol + Send + Sync>,
 
     /// The dispatcher keeps track of duplicates to prevent reprocessing
     dup_filter: Arc<Mutex<DuplicateFilter>>,
@@ -170,7 +170,7 @@ where
         }
 
         log::debug!("packet has stuff");
-        log::debug!("packet contents: {:?}", data);
+        // log::debug!("packet contents: {:?}", data);
 
         // check for duplicates
         let filter_read_lock = filter.lock().await;

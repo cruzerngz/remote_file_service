@@ -7,9 +7,11 @@ use std::{io, net::SocketAddrV4, time::Duration};
 
 use async_trait::async_trait;
 use futures::FutureExt;
+use rand::seq;
 use tokio::net::{ToSocketAddrs, UdpSocket};
 
 use crate::fsm::TransitableState;
+use crate::ser_de::dbg_vec_to_chars;
 use crate::{fsm, middleware::sockaddr_to_v4};
 
 use super::{deserialize_primary, serialize_primary, TransmissionProtocol};
@@ -441,18 +443,10 @@ impl HandshakeProto {
                 deserialize_primary(&seq_buf[..size]).map_err(|_| {
                     io::Error::new(
                         io::ErrorKind::InvalidData,
-                        "rx deserialization failed of TransmissionPacket",
+                        "rx deserialization failed of TransmissionPacket. Ensure that data is serialized using `serialize` and not `serialize_packed`",
                     )
                 })?;
 
-            // {
-            //     Ok(res) => res,
-            //     Err(e) => {
-            //         log::error!("deserialization failed: {:?}", e);
-            //         // retry
-            //         continue;
-            //     },
-            // };
             match packet {
                 TransmissionPacket::Data {
                     seq,

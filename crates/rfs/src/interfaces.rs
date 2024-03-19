@@ -136,12 +136,9 @@ pub trait SimpleOps {
 pub trait CallbackOps {
     /// Registers a path to be watched for updates.
     ///
-    /// The method will block until a file update is detected.
-    /// The contents of the updated file are then sent over the network.
-    async fn register_file_update(
-        path: String,
-        return_addr: SocketAddrV4,
-    ) -> Result<FileUpdate, VirtIOErr>;
+    /// Upon a write update, a [FileUpdate] will be sent to the return address.
+    async fn register_file_update(path: String, return_addr: SocketAddrV4)
+        -> Result<(), VirtIOErr>;
 }
 
 /// Data streaming operations.
@@ -217,6 +214,11 @@ mod tests {
             SimpleOpsSayHello,
             SimpleOpsComputeFib,
         }
+    }
+
+    #[test]
+    fn test_method_signature_collision_callback_ops() {
+        check_signature_collision! {CallbackOpsRegisterFileUpdate,}
     }
 
     #[test]

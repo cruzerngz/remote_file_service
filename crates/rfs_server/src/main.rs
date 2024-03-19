@@ -10,13 +10,16 @@ use std::{
 };
 
 use clap::Parser;
-use futures::FutureExt;
+use futures::{lock::Mutex, FutureExt};
 use rfs::middleware::{
     DefaultProto, Dispatcher, FaultyRequestAckProto, HandshakeProto, RequestAckProto,
     TransmissionProtocol,
 };
 
-use crate::{args::ServerArgs, server::RfsServer};
+use crate::{
+    args::ServerArgs,
+    server::{RegisteredFileUpdates, RfsServer, FILE_UPDATE_CALLBACKS},
+};
 
 #[tokio::main]
 async fn main() {
@@ -35,80 +38,92 @@ async fn main() {
 
     log::info!("server listening on {}", addr);
 
-    let mut dispatcher = match (args.invocation_semantics, args.simulate_ommisions) {
-        (args::InvocationSemantics::Maybe, true) => {
-            Dispatcher::new(
-                addr,
-                server,
-                Arc::new(DefaultProto),
-                args.sequential,
-                args.request_timeout.into(),
-                rfs::defaults::DEFAULT_RETRIES,
-                false,
-            )
-            .await
-        }
-        (args::InvocationSemantics::Maybe, false) => {
-            Dispatcher::new(
-                addr,
-                server,
-                Arc::new(DefaultProto),
-                args.sequential,
-                args.request_timeout.into(),
-                rfs::defaults::DEFAULT_RETRIES,
-                false,
-            )
-            .await
-        }
-        (args::InvocationSemantics::AtLeastOnce, true) => {
-            Dispatcher::new(
-                addr,
-                server,
-                Arc::new(FaultyRequestAckProto::<10>),
-                args.sequential,
-                args.request_timeout.into(),
-                rfs::defaults::DEFAULT_RETRIES,
-                false,
-            )
-            .await
-        }
-        (args::InvocationSemantics::AtLeastOnce, false) => {
-            Dispatcher::new(
-                addr,
-                server,
-                Arc::new(RequestAckProto),
-                args.sequential,
-                args.request_timeout.into(),
-                rfs::defaults::DEFAULT_RETRIES,
-                false,
-            )
-            .await
-        }
-        (args::InvocationSemantics::AtMostOnce, true) => {
-            Dispatcher::new(
-                addr,
-                server,
-                Arc::new(HandshakeProto {}),
-                args.sequential,
-                args.request_timeout.into(),
-                rfs::defaults::DEFAULT_RETRIES,
-                true,
-            )
-            .await
-        }
-        (args::InvocationSemantics::AtMostOnce, false) => {
-            Dispatcher::new(
-                addr,
-                server,
-                Arc::new(HandshakeProto {}),
-                args.sequential,
-                args.request_timeout.into(),
-                rfs::defaults::DEFAULT_RETRIES,
-                true,
-            )
-            .await
-        }
-    };
+    let mut dispatcher: Dispatcher<RfsServer> =
+        match (args.invocation_semantics, args.simulate_ommisions) {
+            (args::InvocationSemantics::Maybe, true) => {
+                Dispatcher::new(
+                    addr,
+                    server,
+                    Arc::new(DefaultProto),
+                    args.sequential,
+                    args.request_timeout.into(),
+                    rfs::defaults::DEFAULT_RETRIES,
+                    false,
+                )
+                .await
+            }
+            (args::InvocationSemantics::Maybe, false) => {
+                Dispatcher::new(
+                    addr,
+                    server,
+                    Arc::new(DefaultProto),
+                    args.sequential,
+                    args.request_timeout.into(),
+                    rfs::defaults::DEFAULT_RETRIES,
+                    false,
+                )
+                .await
+            }
+            (args::InvocationSemantics::AtLeastOnce, true) => {
+                Dispatcher::new(
+                    addr,
+                    server,
+                    Arc::new(FaultyRequestAckProto::<10>),
+                    args.sequential,
+                    args.request_timeout.into(),
+                    rfs::defaults::DEFAULT_RETRIES,
+                    false,
+                )
+                .await
+            }
+            (args::InvocationSemantics::AtLeastOnce, false) => {
+                Dispatcher::new(
+                    addr,
+                    server,
+                    Arc::new(RequestAckProto),
+                    args.sequential,
+                    args.request_timeout.into(),
+                    rfs::defaults::DEFAULT_RETRIES,
+                    false,
+                )
+                .await
+            }
+            (args::InvocationSemantics::AtMostOnce, true) => {
+                Dispatcher::new(
+                    addr,
+                    server,
+                    Arc::new(HandshakeProto {}),
+                    args.sequential,
+                    args.request_timeout.into(),
+                    rfs::defaults::DEFAULT_RETRIES,
+                    true,
+                )
+                .await
+            }
+            (args::InvocationSemantics::AtMostOnce, false) => {
+                Dispatcher::new(
+                    addr,
+                    server,
+                    Arc::new(HandshakeProto {}),
+                    args.sequential,
+                    args.request_timeout.into(),
+                    rfs::defaults::DEFAULT_RETRIES,
+                    true,
+                )
+                .await
+            }
+        };
+
+    // initialize callback stuffs
+    FILE_UPDATE_CALLBACKS.get_or_init(|| {
+        Arc::new(Mutex::new(RegisteredFileUpdates {
+            bind_addr: args.address,
+            lookup: Default::default(),
+            proto: dispatcher.protocol.clone(),
+            timeout: args.request_timeout.into(),
+            retries: rfs::defaults::DEFAULT_RETRIES,
+        }))
+    });
 
     dispatcher.dispatch().await;
 
