@@ -5,7 +5,8 @@ mod server;
 
 use std::{
     net::{Ipv4Addr, SocketAddrV4},
-    str::FromStr, sync::Arc,
+    str::FromStr,
+    sync::Arc,
 };
 
 use clap::Parser;

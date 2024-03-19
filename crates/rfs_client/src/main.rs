@@ -3,7 +3,8 @@ mod ui;
 
 use std::{
     io::{self, Write},
-    net::SocketAddrV4, sync::Arc,
+    net::SocketAddrV4,
+    sync::Arc,
 };
 
 use args::ClientArgs;

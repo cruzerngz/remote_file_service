@@ -65,8 +65,7 @@ pub fn derive_client(
 
             // Generic should match `NEW_FUNC_ARG`
             // check if trait ident matches the definition
-            signature.generics =
-                syn::parse_quote! {
+            signature.generics = syn::parse_quote! {
                 // <T: rfs_core::middleware::TransmissionProtocol + core::marker::Send + core::marker::Sync>
             };
 

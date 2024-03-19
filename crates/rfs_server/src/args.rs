@@ -1,7 +1,9 @@
 //! CLI args
 
 use std::{
-    fmt::Display, net::Ipv4Addr, path::{Path, PathBuf}
+    fmt::Display,
+    net::Ipv4Addr,
+    path::{Path, PathBuf},
 };
 
 use clap::Parser;
@@ -49,7 +51,6 @@ pub(crate) struct ServerArgs {
     pub simulate_ommisions: bool,
 }
 
-
 #[derive(Clone, Debug, clap::ValueEnum)]
 pub enum InvocationSemantics {
     /// A request is sent only once, and the receipt is not guaranteed.
@@ -66,7 +67,6 @@ impl Display for InvocationSemantics {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", camel_to_snake_case(&format!("{:?}", self)))
     }
-
 }
 
 pub fn camel_to_snake_case(s: &str) -> String {
@@ -83,4 +83,3 @@ pub fn camel_to_snake_case(s: &str) -> String {
     }
     result
 }
-

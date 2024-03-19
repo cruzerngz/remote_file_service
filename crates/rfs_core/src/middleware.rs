@@ -846,7 +846,13 @@ mod tests {
         tx_rx(Arc::new(DefaultProto), false, Duration::from_millis(400), 2).await;
 
         log::info!("testing RequestAckProto small");
-        tx_rx(Arc::new(RequestAckProto), false, Duration::from_millis(400), 3).await;
+        tx_rx(
+            Arc::new(RequestAckProto),
+            false,
+            Duration::from_millis(400),
+            3,
+        )
+        .await;
 
         log::info!("testing FaultyRequestAckProto small");
         tx_rx(
