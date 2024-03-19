@@ -272,10 +272,10 @@ pub enum TransmissionPacket {
 
 /// Types that implement this trait can be plugged into [`ContextManager`] and [`Dispatcher`].
 #[async_trait]
-pub trait TransmissionProtocol: Clone + core::marker::Send + core::marker::Sync {
+pub trait TransmissionProtocol: Debug {
     /// Send bytes to the remote. Any fault-tolerant logic should be implemented here.
     async fn send_bytes(
-        &mut self,
+        &self,
         sock: &UdpSocket,
         target: SocketAddrV4,
         payload: &[u8],
@@ -287,7 +287,7 @@ pub trait TransmissionProtocol: Clone + core::marker::Send + core::marker::Sync 
 
     /// Wait for a UDP packet. Returns the packet source and data.
     async fn recv_bytes(
-        &mut self,
+        &self,
         sock: &UdpSocket,
         timeout: Duration,
         retries: u8,
@@ -306,6 +306,15 @@ fn sockaddr_to_v4(addr: SocketAddr) -> io::Result<SocketAddrV4> {
     }
 }
 
+/// Testing out
+pub trait TestTrait: Debug {}
+
+impl TestTrait for RequestAckProto {}
+
+fn this() {
+    let x: Box<dyn TestTrait + Send + Sync> = Box::new(RequestAckProto);
+}
+
 /// A simple version of [HandshakeProto]. This protocol is compatible with [FaultyRequestAckProto].
 ///
 /// Every sent item needs an ack back.
@@ -315,7 +324,7 @@ pub struct RequestAckProto;
 #[async_trait]
 impl TransmissionProtocol for RequestAckProto {
     async fn send_bytes(
-        &mut self,
+        &self,
         sock: &UdpSocket,
         target: SocketAddrV4,
         payload: &[u8],
@@ -380,7 +389,7 @@ impl TransmissionProtocol for RequestAckProto {
     }
 
     async fn recv_bytes(
-        &mut self,
+        &self,
         sock: &UdpSocket,
         _timeout: Duration,
         _retries: u8,
@@ -411,7 +420,7 @@ pub struct FaultyRequestAckProto<const FRAC: u32>;
 #[async_trait]
 impl<const FRAC: u32> TransmissionProtocol for FaultyRequestAckProto<FRAC> {
     async fn send_bytes(
-        &mut self,
+        &self,
         sock: &UdpSocket,
         target: SocketAddrV4,
         payload: &[u8],
@@ -482,7 +491,7 @@ impl<const FRAC: u32> TransmissionProtocol for FaultyRequestAckProto<FRAC> {
     }
 
     async fn recv_bytes(
-        &mut self,
+        &self,
         sock: &UdpSocket,
         _timeout: Duration,
         _retries: u8,
@@ -520,7 +529,7 @@ pub struct DefaultProto;
 #[async_trait]
 impl TransmissionProtocol for DefaultProto {
     async fn send_bytes(
-        &mut self,
+        &self,
         sock: &UdpSocket,
         target: SocketAddrV4,
         payload: &[u8],
@@ -534,7 +543,7 @@ impl TransmissionProtocol for DefaultProto {
     }
 
     async fn recv_bytes(
-        &mut self,
+        &self,
         sock: &UdpSocket,
         _timeout: Duration,
         _retries: u8,
@@ -751,8 +760,8 @@ mod tests {
     }
 
     /// Transmit and receive some stuff
-    async fn tx_rx<T: TransmissionProtocol + Clone + 'static>(
-        mut proto: T,
+    async fn tx_rx(
+        proto: Arc<dyn TransmissionProtocol + Send + Sync>,
         large: bool,
         timeout: Duration,
         retries: u8,
@@ -825,22 +834,23 @@ mod tests {
             .init();
 
         let handshake_proto = HandshakeProto {};
+        let proto_arc = Arc::new(handshake_proto);
 
         log::info!("testing HandshakeProto large");
-        tx_rx(handshake_proto.clone(), true, Duration::from_millis(750), 5).await;
+        tx_rx(proto_arc.clone(), true, Duration::from_millis(750), 5).await;
 
         log::info!("testing HandshakeProto small");
-        tx_rx(handshake_proto, false, Duration::from_millis(750), 5).await;
+        tx_rx(proto_arc.clone(), false, Duration::from_millis(750), 5).await;
 
         log::info!("testing DefaultProto small");
-        tx_rx(DefaultProto, false, Duration::from_millis(400), 2).await;
+        tx_rx(Arc::new(DefaultProto), false, Duration::from_millis(400), 2).await;
 
         log::info!("testing RequestAckProto small");
-        tx_rx(RequestAckProto, false, Duration::from_millis(400), 3).await;
+        tx_rx(Arc::new(RequestAckProto), false, Duration::from_millis(400), 3).await;
 
         log::info!("testing FaultyRequestAckProto small");
         tx_rx(
-            FaultyRequestAckProto::<10>,
+            Arc::new(FaultyRequestAckProto::<10>),
             false,
             Duration::from_millis(400),
             3,

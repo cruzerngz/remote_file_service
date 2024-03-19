@@ -32,7 +32,7 @@ pub fn derive_client(
     // ten thousand steps, so I'm just going to define it here.
     #[allow(non_snake_case)]
     let NEW_FUNC_ARG: FnArg =
-        syn::parse2(quote! {ctx: &mut rfs_core::middleware::ContextManager<T>}).unwrap();
+        syn::parse2(quote! {ctx: &mut rfs_core::middleware::ContextManager}).unwrap();
 
     // struct definition
     let struct_name = Ident::new(&format!("{}Client", &trait_name), trait_name.span());
@@ -67,7 +67,7 @@ pub fn derive_client(
             // check if trait ident matches the definition
             signature.generics =
                 syn::parse_quote! {
-                <T: rfs_core::middleware::TransmissionProtocol + core::marker::Send + core::marker::Sync>
+                // <T: rfs_core::middleware::TransmissionProtocol + core::marker::Send + core::marker::Sync>
             };
 
             let new_method = ImplItemFn {

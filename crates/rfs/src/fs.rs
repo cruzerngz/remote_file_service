@@ -19,13 +19,13 @@ use crate::interfaces::PrimitiveFsOpsClient;
 ///
 /// This function uses the primitive method [PrimitiveFsOpsClient::read_bytes] and does not
 /// create a virtual file.
-pub async fn read_to_string<P, T>(
-    mut ctx: rfs_core::middleware::ContextManager<T>,
+pub async fn read_to_string<P>(
+    mut ctx: rfs_core::middleware::ContextManager,
     path: P,
 ) -> io::Result<String>
 where
     P: AsRef<Path>,
-    T: TransmissionProtocol,
+    // T: TransmissionProtocol,
 {
     let contents = PrimitiveFsOpsClient::read_all(
         &mut ctx,

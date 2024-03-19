@@ -3,6 +3,7 @@
 //! currently NOT USED.
 
 #![allow(unused)]
+#![cfg(notset)]
 
 use std::{
     io, marker,

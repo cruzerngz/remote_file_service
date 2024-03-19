@@ -5,6 +5,7 @@ use std::{
     fmt::Debug,
     io,
     net::{Ipv4Addr, SocketAddrV4},
+    sync::Arc,
     time::Duration,
 };
 use tokio::net::UdpSocket;
@@ -17,10 +18,10 @@ use super::{InvokeError, TransmissionProtocol};
 /// the dispatcher.
 ///
 /// Integrity checks, validation, etc. are performed here.
-#[derive(Debug, Clone, Copy)]
-pub struct ContextManager<T>
+#[derive(Debug, Clone)]
+pub struct ContextManager
 where
-    T: TransmissionProtocol,
+// T: TransmissionProtocol,
 {
     /// The client's IP
     source_ip: Ipv4Addr,
@@ -34,12 +35,12 @@ where
     pub(super) retries: u8,
 
     #[allow(unused)]
-    protocol: T,
+    protocol: Arc<dyn TransmissionProtocol + Send + Sync>,
 }
 
-impl<T> ContextManager<T>
-where
-    T: TransmissionProtocol + std::marker::Send + std::marker::Sync,
+impl ContextManager
+// where
+// T: TransmissionProtocol + std::marker::Send + std::marker::Sync,
 {
     /// Timeout for sending requests to the remote
 
@@ -51,7 +52,7 @@ where
         target: SocketAddrV4,
         timeout: Duration,
         retries: u8,
-        protocol: T,
+        protocol: Arc<dyn TransmissionProtocol + Send + Sync>,
     ) -> std::io::Result<Self> {
         let mut s = Self {
             source_ip: source,

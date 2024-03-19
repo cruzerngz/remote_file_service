@@ -49,8 +49,8 @@ pub enum VirtIOErr {
 /// For simplicity, symlinks residing on the remote will not be treated as files
 /// and they will be ignored.
 #[derive(Clone, Debug)]
-pub struct VirtFile<T: TransmissionProtocol> {
-    ctx: ContextManager<T>,
+pub struct VirtFile {
+    ctx: ContextManager,
     path: PathBuf,
 
     /// Local metadata. May differ from the remote
@@ -76,8 +76,8 @@ struct FileReadMeta {
 ///
 /// Attempts to mirror [std::fs::OpenOptions].
 #[derive(Clone, Debug)]
-pub struct VirtOpenOptions<T: TransmissionProtocol> {
-    ctx: ContextManager<T>,
+pub struct VirtOpenOptions {
+    ctx: ContextManager,
     create: bool,
     read: bool,
     write: bool,
@@ -126,19 +126,16 @@ pub struct VirtPermissions {
     execute: (bool, bool, bool),
 }
 
-impl<T: TransmissionProtocol> Unpin for VirtFile<T> {}
+impl Unpin for VirtFile {}
 
-impl<T> VirtFile<T>
-where
-    T: TransmissionProtocol,
+impl VirtFile
+// where
+//     T: TransmissionProtocol,
 {
     /// Create a new file on the remote.
     ///
     /// Attempts to mirror [std::fs::File::create]
-    pub async fn create<P: AsRef<Path>>(
-        mut ctx: ContextManager<T>,
-        path: P,
-    ) -> std::io::Result<Self> {
+    pub async fn create<P: AsRef<Path>>(mut ctx: ContextManager, path: P) -> std::io::Result<Self> {
         let res = PrimitiveFsOpsClient::create(
             &mut ctx,
             path.as_ref()
@@ -168,7 +165,7 @@ where
     /// Open an existing file in read-only mode.
     ///
     /// Attempts to mirror [std::fs::File::open]
-    pub async fn open<P: AsRef<Path>>(ctx: ContextManager<T>, path: P) -> std::io::Result<Self> {
+    pub async fn open<P: AsRef<Path>>(ctx: ContextManager, path: P) -> std::io::Result<Self> {
         // let res = PrimitiveFsOpsClient
 
         Ok(Self {
@@ -221,11 +218,11 @@ where
     }
 }
 
-impl<T> VirtOpenOptions<T>
-where
-    T: TransmissionProtocol,
+impl VirtOpenOptions
+// where
+//     T: TransmissionProtocol,
 {
-    pub fn new(ctx: ContextManager<T>) -> Self {
+    pub fn new(ctx: ContextManager) -> Self {
         Self {
             ctx,
             // target: todo!(),
@@ -268,7 +265,7 @@ where
         self
     }
 
-    pub fn open<P: AsRef<Path>>(&self, path: P) -> io::Result<VirtFile<T>> {
+    pub fn open<P: AsRef<Path>>(&self, path: P) -> io::Result<VirtFile> {
         match (
             self.read,
             self.write,

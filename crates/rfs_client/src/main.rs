@@ -3,7 +3,7 @@ mod ui;
 
 use std::{
     io::{self, Write},
-    net::SocketAddrV4,
+    net::SocketAddrV4, sync::Arc,
 };
 
 use args::ClientArgs;
@@ -35,7 +35,7 @@ async fn main() -> io::Result<()> {
         SocketAddrV4::new(args.target, args.port),
         args.request_timeout.into(),
         args.num_retries,
-        HandshakeProto {},
+        Arc::new(HandshakeProto {}),
     )
     .await?;
 

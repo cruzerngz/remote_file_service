@@ -5,7 +5,7 @@ mod server;
 
 use std::{
     net::{Ipv4Addr, SocketAddrV4},
-    str::FromStr,
+    str::FromStr, sync::Arc,
 };
 
 use clap::Parser;
@@ -34,7 +34,7 @@ async fn main() {
     let mut dispatcher = Dispatcher::new(
         addr,
         server,
-        HandshakeProto {},
+        Arc::new(HandshakeProto {}),
         args.sequential,
         args.request_timeout.into(),
         rfs::defaults::DEFAULT_RETRIES,

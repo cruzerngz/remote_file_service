@@ -23,10 +23,9 @@ use tokio::net::{ToSocketAddrs, UdpSocket};
 /// The dispatcher routes the contents of remote invocations to their
 /// appropriate handlers.
 #[derive(Debug)]
-pub struct Dispatcher<H, T>
+pub struct Dispatcher<H>
 where
     H: Debug + PayloadHandler,
-    T: TransmissionProtocol,
 {
     socket: Arc<UdpSocket>,
     timeout: Duration,
@@ -38,7 +37,7 @@ where
     /// Message passing protocol. Acts as a transport layer.
     ///
     /// We only need the trait associated methods, so a struct instance is not required.
-    protocol: T,
+    protocol: Arc<dyn TransmissionProtocol + Send + Sync>,
 
     /// The dispatcher keeps track of duplicates to prevent reprocessing
     dup_filter: Arc<Mutex<DuplicateFilter>>,
@@ -53,10 +52,10 @@ struct DuplicateFilter {
     lifetime: Duration,
 }
 
-impl<H, T> Dispatcher<H, T>
+impl<H> Dispatcher<H>
 where
     H: Debug + PayloadHandler + std::marker::Send + std::marker::Sync + 'static,
-    T: TransmissionProtocol + Debug + std::marker::Send + std::marker::Sync + 'static,
+    // T: TransmissionProtocol + Debug + std::marker::Send + std::marker::Sync + 'static,
 {
     /// Create a new dispatcher from the handler and a listening IP.
     ///
@@ -64,7 +63,7 @@ where
     pub async fn new<A: ToSocketAddrs>(
         addr: A,
         handler: H,
-        protocol: T,
+        protocol: Arc<dyn TransmissionProtocol + Send + Sync>,
         sequential: bool,
         timeout: Duration,
         retries: u8,
@@ -159,7 +158,7 @@ where
         handler: Arc<Mutex<H>>,
         filter: Arc<Mutex<DuplicateFilter>>,
         enable_filter: bool,
-        mut protocol: T,
+        protocol: Arc<dyn TransmissionProtocol + Send + Sync>,
         timeout: Duration,
         retries: u8,
     ) {

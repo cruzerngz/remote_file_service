@@ -240,7 +240,7 @@ impl HandshakeProto {
 impl HandshakeProto {
     /// Sends the new address over to rx
     async fn send_address_change<A: ToSocketAddrs>(
-        &mut self,
+        &self,
         state: &mut HandshakeTx,
         sock: &UdpSocket,
         target: A,
@@ -276,7 +276,7 @@ impl HandshakeProto {
     /// Waits for rx to send over the new address. Error handling is done by rx.
     /// Modifies the given target to this new address.
     async fn transmit_data(
-        &mut self,
+        &self,
         state: &mut HandshakeTx,
         sock: &UdpSocket,
         target: SocketAddrV4,
@@ -355,7 +355,7 @@ impl HandshakeProto {
     ///
     /// The original address of the tx is returned.
     async fn await_address_change(
-        &mut self,
+        &self,
         state: &mut HandshakeRx,
         sock: &UdpSocket,
         new_target: &mut Option<SocketAddrV4>,
@@ -398,7 +398,7 @@ impl HandshakeProto {
 
     // receive loop
     async fn receive(
-        &mut self,
+        &self,
         state: &mut HandshakeRx,
         sock: &UdpSocket,
         target: SocketAddrV4,
@@ -498,7 +498,7 @@ impl HandshakeProto {
         Ok(())
     }
 
-    async fn complete(&mut self, sock: &UdpSocket, target: SocketAddrV4) -> io::Result<()> {
+    async fn complete(&self, sock: &UdpSocket, target: SocketAddrV4) -> io::Result<()> {
         let packet = TransmissionPacket::Complete;
         let ser_packet = serialize_primary(&packet).expect("serialization must not fail");
 
@@ -512,7 +512,7 @@ impl HandshakeProto {
 #[async_trait]
 impl TransmissionProtocol for HandshakeProto {
     async fn send_bytes(
-        &mut self,
+        &self,
         sock: &UdpSocket,
         target: SocketAddrV4,
         payload: &[u8],
@@ -568,7 +568,7 @@ impl TransmissionProtocol for HandshakeProto {
     }
 
     async fn recv_bytes(
-        &mut self,
+        &self,
         sock: &UdpSocket,
         timeout: Duration,
         retries: u8,

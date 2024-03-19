@@ -2,7 +2,7 @@
 
 use std::{fmt::Display, net::Ipv4Addr};
 
-use clap::{Parser, ValueEnum};
+use clap::Parser;
 
 #[derive(Parser)]
 pub struct ClientArgs {
@@ -57,7 +57,6 @@ impl Display for InvocationSemantics {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", camel_to_snake_case(&format!("{:?}", self)))
     }
-
 }
 
 pub fn camel_to_snake_case(s: &str) -> String {
@@ -74,5 +73,3 @@ pub fn camel_to_snake_case(s: &str) -> String {
     }
     result
 }
-
-
