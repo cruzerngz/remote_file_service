@@ -306,15 +306,6 @@ fn sockaddr_to_v4(addr: SocketAddr) -> io::Result<SocketAddrV4> {
     }
 }
 
-/// Testing out
-pub trait TestTrait: Debug {}
-
-impl TestTrait for RequestAckProto {}
-
-fn this() {
-    let x: Box<dyn TestTrait + Send + Sync> = Box::new(RequestAckProto);
-}
-
 /// A simple version of [HandshakeProto]. This protocol is compatible with [FaultyRequestAckProto].
 ///
 /// Every sent item needs an ack back.

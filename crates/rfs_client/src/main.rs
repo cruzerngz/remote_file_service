@@ -31,14 +31,68 @@ async fn main() -> io::Result<()> {
         .init();
 
     let args = ClientArgs::parse();
-    let mut manager = ContextManager::new(
-        args.listen_address,
-        SocketAddrV4::new(args.target, args.port),
-        args.request_timeout.into(),
-        args.num_retries,
-        Arc::new(HandshakeProto {}),
-    )
-    .await?;
+    let mut manager = match (args.invocation_semantics, args.simulate_ommisions) {
+        (args::InvocationSemantics::Maybe, true) => {
+            ContextManager::new(
+                args.listen_address,
+                SocketAddrV4::new(args.target, args.port),
+                args.request_timeout.into(),
+                args.num_retries,
+                Arc::new(DefaultProto),
+            )
+            .await?
+        }
+        (args::InvocationSemantics::Maybe, false) => {
+            ContextManager::new(
+                args.listen_address,
+                SocketAddrV4::new(args.target, args.port),
+                args.request_timeout.into(),
+                args.num_retries,
+                Arc::new(DefaultProto),
+            )
+            .await?
+        }
+        (args::InvocationSemantics::AtLeastOnce, true) => {
+            ContextManager::new(
+                args.listen_address,
+                SocketAddrV4::new(args.target, args.port),
+                args.request_timeout.into(),
+                args.num_retries,
+                Arc::new(FaultyRequestAckProto::<10>),
+            )
+            .await?
+        }
+        (args::InvocationSemantics::AtLeastOnce, false) => {
+            ContextManager::new(
+                args.listen_address,
+                SocketAddrV4::new(args.target, args.port),
+                args.request_timeout.into(),
+                args.num_retries,
+                Arc::new(RequestAckProto),
+            )
+            .await?
+        }
+        (args::InvocationSemantics::AtMostOnce, true) => {
+            ContextManager::new(
+                args.listen_address,
+                SocketAddrV4::new(args.target, args.port),
+                args.request_timeout.into(),
+                args.num_retries,
+                Arc::new(HandshakeProto {}),
+            )
+            .await?
+        }
+        (args::InvocationSemantics::AtMostOnce, false) => {
+            ContextManager::new(
+                args.listen_address,
+                SocketAddrV4::new(args.target, args.port),
+                args.request_timeout.into(),
+                args.num_retries,
+                Arc::new(HandshakeProto {}),
+            )
+            .await?
+        }
+    };
 
     log::info!("starting remote invocations");
     let _ = SimpleOpsClient::say_hello(&mut manager, "new configurtation".to_string())
@@ -52,8 +106,7 @@ async fn main() -> io::Result<()> {
     // let contents = rfs::fs::read_to_string(manager, "red_chips_v3.json").await?;
 
     // println!("file contents: {}", contents);
-    // // file.write_all(b"hello world").await?;
-    let mut contents = String::new();
+    // file.write_bytes(b"hello world").await?;
     let data = file.read_bytes().await?;
 
     println!("bytes read: {:?}", std::str::from_utf8(&data));

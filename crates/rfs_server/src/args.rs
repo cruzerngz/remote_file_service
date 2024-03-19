@@ -35,12 +35,6 @@ pub(crate) struct ServerArgs {
     #[clap(long)]
     pub sequential: bool,
 
-    /// Do not filter duplicate requests
-    /// TODO: remove this option, the 2 fields below will handle this case
-    #[clap(long)]
-    #[clap(default_value_t = true)]
-    pub allow_duplicates: bool,
-
     /// Invocation semantics (transmission protocol) to use
     #[clap(long)]
     #[clap(default_value_t = InvocationSemantics::AtMostOnce)]

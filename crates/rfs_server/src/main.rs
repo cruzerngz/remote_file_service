@@ -11,7 +11,10 @@ use std::{
 
 use clap::Parser;
 use futures::FutureExt;
-use rfs::middleware::{DefaultProto, Dispatcher, HandshakeProto, TransmissionProtocol};
+use rfs::middleware::{
+    DefaultProto, Dispatcher, FaultyRequestAckProto, HandshakeProto, RequestAckProto,
+    TransmissionProtocol,
+};
 
 use crate::{args::ServerArgs, server::RfsServer};
 
@@ -32,41 +35,82 @@ async fn main() {
 
     log::info!("server listening on {}", addr);
 
-    let mut dispatcher = Dispatcher::new(
-        addr,
-        server,
-        Arc::new(HandshakeProto {}),
-        args.sequential,
-        args.request_timeout.into(),
-        rfs::defaults::DEFAULT_RETRIES,
-        !args.allow_duplicates,
-    )
-    .await;
-
-    let x: bool;
-
-    // let mut d: Box<Dispatcher<RfsServer, dyn TransmissionProtocol>> = match x {
-    //     true => Box::new(Dispatcher::new(
-    //         addr,
-    //         server,
-    //         HandshakeProto {},
-    //         args.sequential,
-    //         args.request_timeout.into(),
-    //         rfs::defaults::DEFAULT_RETRIES,
-    //     ).await),
-    //     false => Box::new(Dispatcher::new(
-    //         addr,
-    //         server,
-    //         DefaultProto,
-    //         args.sequential,
-    //         args.request_timeout.into(),
-    //         rfs::defaults::DEFAULT_RETRIES,
-    //     ).await),
-    // };
+    let mut dispatcher = match (args.invocation_semantics, args.simulate_ommisions) {
+        (args::InvocationSemantics::Maybe, true) => {
+            Dispatcher::new(
+                addr,
+                server,
+                Arc::new(DefaultProto),
+                args.sequential,
+                args.request_timeout.into(),
+                rfs::defaults::DEFAULT_RETRIES,
+                false,
+            )
+            .await
+        }
+        (args::InvocationSemantics::Maybe, false) => {
+            Dispatcher::new(
+                addr,
+                server,
+                Arc::new(DefaultProto),
+                args.sequential,
+                args.request_timeout.into(),
+                rfs::defaults::DEFAULT_RETRIES,
+                false,
+            )
+            .await
+        }
+        (args::InvocationSemantics::AtLeastOnce, true) => {
+            Dispatcher::new(
+                addr,
+                server,
+                Arc::new(FaultyRequestAckProto::<10>),
+                args.sequential,
+                args.request_timeout.into(),
+                rfs::defaults::DEFAULT_RETRIES,
+                false,
+            )
+            .await
+        }
+        (args::InvocationSemantics::AtLeastOnce, false) => {
+            Dispatcher::new(
+                addr,
+                server,
+                Arc::new(RequestAckProto),
+                args.sequential,
+                args.request_timeout.into(),
+                rfs::defaults::DEFAULT_RETRIES,
+                false,
+            )
+            .await
+        }
+        (args::InvocationSemantics::AtMostOnce, true) => {
+            Dispatcher::new(
+                addr,
+                server,
+                Arc::new(HandshakeProto {}),
+                args.sequential,
+                args.request_timeout.into(),
+                rfs::defaults::DEFAULT_RETRIES,
+                true,
+            )
+            .await
+        }
+        (args::InvocationSemantics::AtMostOnce, false) => {
+            Dispatcher::new(
+                addr,
+                server,
+                Arc::new(HandshakeProto {}),
+                args.sequential,
+                args.request_timeout.into(),
+                rfs::defaults::DEFAULT_RETRIES,
+                true,
+            )
+            .await
+        }
+    };
 
     dispatcher.dispatch().await;
-
-    // max_udp_tx_rx().await;
 
     return;
 }
