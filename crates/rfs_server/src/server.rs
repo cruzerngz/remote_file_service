@@ -1,17 +1,21 @@
 //! Server definition and implementations
 #![allow(unused)]
 
+use futures::{channel::mpsc, SinkExt, StreamExt};
 // use crate::server::middleware::PayloadHandler;
 use rfs::{
     fs::VirtIOErr,
-    middleware::{InvokeError, PayloadHandler},
+    middleware::{InvokeError, MiddlewareData, PayloadHandler},
     payload_handler, RemoteMethodSignature, RemotelyInvocable,
 };
 use std::{
     collections::HashMap,
     fs::{self, OpenOptions},
     io::Write,
+    net::SocketAddrV4,
+    num::NonZeroU8,
     path::{Path, PathBuf},
+    sync::Arc,
     time::Duration,
 };
 
@@ -29,6 +33,27 @@ pub struct RfsServer {
     /// File read cache, pending transmission to clients.
     /// This cache contains the entire contents of a file.
     pub read_cache: HashMap<String, Vec<u8>>,
+
+    /// Registered callbacks watching for file updates.
+    ///
+    /// A path can have multiple callbacks.
+    pub file_upd_callbacks: HashMap<String, Vec<FileUpdateCallback>>,
+}
+
+#[derive(Debug)]
+pub struct FileUpdateCallback {
+    /// The return address to send the update back to.
+    return_addr: SocketAddrV4,
+
+    /// Synchro primitive that unblocks the waiting dispatch thread.
+    chan: mpsc::Sender<Arc<FileUpdate>>,
+}
+
+impl FileUpdateCallback {
+    /// Sends the updated file contents
+    async fn send_update(&mut self, data: Arc<FileUpdate>) {
+        self.chan.send(data).await;
+    }
 }
 
 impl Default for RfsServer {
@@ -43,6 +68,7 @@ impl Default for RfsServer {
         Self {
             base: PathBuf::from(exe_dir),
             read_cache: Default::default(),
+            file_upd_callbacks: Default::default(),
         }
     }
 }
@@ -56,6 +82,7 @@ impl RfsServer {
                 .canonicalize()
                 .expect("path must be valid"),
             read_cache: Default::default(),
+            file_upd_callbacks: Default::default(),
         }
     }
 
@@ -80,6 +107,38 @@ impl RfsServer {
             true => None,
             false => Some(full_path),
         }
+    }
+
+    /// Resolve the given relative path. The path must exist for method to function.
+    ///
+    /// All links are resolved. If the path contains backdirs, this will return `None`.
+    fn resolve_relative_path<P: AsRef<Path>>(&self, path: P) -> Option<PathBuf> {
+        let resolved = self.resolve_path(path)?;
+
+        let full = resolved.canonicalize().ok()?;
+
+        let relative = full.strip_prefix(&self.base).ok()?;
+
+        Some(relative.to_path_buf())
+    }
+
+    /// Searches for the file update callbacks and triggers them, if any.
+    ///
+    /// Returns the number of callbacks triggered.
+    async fn trigger_file_update(&mut self, path: &str, contents: FileUpdate) -> Option<NonZeroU8> {
+        let relative_path = self.resolve_relative_path(&path)?.to_str()?.to_string();
+
+        let callbacks = self.file_upd_callbacks.remove(&relative_path)?;
+
+        let callback_data = Arc::new(contents.to_owned());
+        let num_targets = callbacks.len();
+
+        // unblocks dispatch thread(s)
+        for mut cb in callbacks {
+            cb.send_update(callback_data.clone()).await
+        }
+
+        NonZeroU8::new(num_targets as u8)
     }
 }
 
@@ -152,7 +211,12 @@ impl PrimitiveFsOps for RfsServer {
 
     async fn write_all(&mut self, path: String, contents: Vec<u8>) -> bool {
         let mut full_path = self.base.clone();
-        full_path.push(path);
+        full_path.push(&path);
+
+        let num_triggered = self
+            .trigger_file_update(&path, FileUpdate::Overwrite(contents.clone()))
+            .await;
+        log::debug!("triggered {:?} callbacks", num_triggered);
 
         match fs::write(full_path, contents) {
             Ok(_) => true,
@@ -172,13 +236,18 @@ impl PrimitiveFsOps for RfsServer {
         };
 
         let res = match mode {
-            FileWriteMode::Append => (OpenOptions::new().append(true).open(&full_path), bytes),
+            FileWriteMode::Append => (
+                OpenOptions::new().append(true).open(&full_path),
+                bytes.clone(),
+                FileUpdate::Append(bytes),
+            ),
             FileWriteMode::Truncate => (
                 OpenOptions::new()
                     .truncate(true)
                     .write(true)
                     .open(&full_path),
-                bytes,
+                bytes.clone(),
+                FileUpdate::Overwrite(bytes),
             ),
             FileWriteMode::Insert(offset) => {
                 let curr_contents = fs::read(&full_path).map_err(|e| VirtIOErr::from(e))?;
@@ -193,13 +262,17 @@ impl PrimitiveFsOps for RfsServer {
                         .truncate(true)
                         .write(true)
                         .open(&full_path),
-                    new_contents,
+                    new_contents.clone(),
+                    FileUpdate::Insert((offset, bytes)),
                 )
             }
         };
 
         let (mut f, data) = { (res.0.map_err(|e| VirtIOErr::from(e))?, res.1) };
         f.write_all(&data).map_err(|e| VirtIOErr::from(e))?;
+
+        let num_triggered = self.trigger_file_update(&path, res.2).await;
+        log::debug!("triggered {:?} callbacks", num_triggered);
 
         Ok(data.len())
     }
@@ -273,6 +346,43 @@ impl SimpleOps for RfsServer {
                 big
             }
         }
+    }
+}
+
+#[async_trait]
+impl CallbackOps for RfsServer {
+    async fn register_file_update(
+        &mut self,
+        path: String,
+        return_addr: SocketAddrV4,
+    ) -> Result<FileUpdate, VirtIOErr> {
+        let (send, mut recv) = mpsc::channel::<Arc<FileUpdate>>(1);
+
+        let handle = FileUpdateCallback {
+            return_addr,
+            chan: send,
+        };
+
+        // get the relative path to the server's base
+        let relative_path = self
+            .resolve_relative_path(&path)
+            .ok_or(VirtIOErr::NotFound)?
+            .to_str()
+            .expect("path must be valid")
+            .to_string();
+
+        // create a receiver and push the channel to the callback list
+        match self.file_upd_callbacks.get_mut(&relative_path) {
+            Some(callbacks) => callbacks.push(handle),
+            None => {
+                self.file_upd_callbacks.insert(relative_path, vec![handle]);
+            }
+        };
+
+        // blocks until an update is sent over the channel
+        let new_contents = recv.next().await.ok_or(VirtIOErr::UnexpectedEof)?;
+
+        Ok(new_contents.as_ref().to_owned())
     }
 }
 

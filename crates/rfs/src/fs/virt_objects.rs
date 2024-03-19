@@ -216,6 +216,11 @@ impl VirtFile
 
         Ok(bytes.len())
     }
+
+    /// Blocks until the file is updated. The new file contents are returned.
+    pub async fn watch(&mut self) -> io::Result<Vec<u8>> {
+        todo!()
+    }
 }
 
 impl VirtOpenOptions

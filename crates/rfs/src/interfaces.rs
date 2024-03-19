@@ -2,6 +2,7 @@
 //!
 //! All traits have [`remote_interface`] attribute and only contain async functions.
 
+use std::fs::File;
 use std::net::SocketAddrV4;
 use std::path::PathBuf;
 
@@ -43,6 +44,8 @@ pub trait PrimitiveFsOps {
     /// Write a vector of bytes to a file. The file will be created if it does not exist.
     ///
     /// If the file exists, the contents of the file will be replaced by the payload.
+    /// This is a convenience method and is equivalent to calling [PrimitiveFsOps::write_bytes]
+    /// with [`FileWriteMode::Truncate`].
     async fn write_all(path: String, contents: Vec<u8>) -> bool;
 
     /// Writes some bytes into a file path, returning the number of bytes written.
@@ -97,6 +100,23 @@ pub enum FileWriteMode {
     Insert(usize),
 }
 
+/// File update types
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub enum FileUpdate {
+    /// New data that is appended to the file.
+    Append(Vec<u8>),
+
+    /// Data that is inserted at a specified offset.
+    Insert((usize, Vec<u8>)),
+
+    /// Data that completely replaces the file
+    Overwrite(Vec<u8>),
+}
+
+/// Identifier for a file registered with the remote.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct FileId(pub(crate) u64);
+
 /// Sanity check interface
 #[remote_interface]
 pub trait SimpleOps {
@@ -114,7 +134,14 @@ pub trait SimpleOps {
 /// These methods should not be invoked directly!
 #[remote_interface]
 pub trait CallbackOps {
-    async fn register_file_update(path: String) -> bool;
+    /// Registers a path to be watched for updates.
+    ///
+    /// The method will block until a file update is detected.
+    /// The contents of the updated file are then sent over the network.
+    async fn register_file_update(
+        path: String,
+        return_addr: SocketAddrV4,
+    ) -> Result<FileUpdate, VirtIOErr>;
 }
 
 /// Data streaming operations.

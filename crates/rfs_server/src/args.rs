@@ -32,6 +32,8 @@ pub(crate) struct ServerArgs {
     pub request_timeout: humantime::Duration,
 
     /// Process requests sequentially instead of in parallel.
+    ///
+    /// Note that registering callbacks will block indefinitely in serial mode.
     #[clap(long)]
     pub sequential: bool,
 

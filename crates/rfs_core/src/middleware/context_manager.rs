@@ -54,7 +54,7 @@ impl ContextManager
         retries: u8,
         protocol: Arc<dyn TransmissionProtocol + Send + Sync>,
     ) -> std::io::Result<Self> {
-        let mut s = Self {
+        let s = Self {
             source_ip: source,
             target_ip: target,
             timeout,
