@@ -280,10 +280,10 @@ impl PrimitiveFsOps for RfsServer {
             .await;
 
         let num_triggered = lock.trigger_file_update(&path, res.2).await;
-        log::info!("triggered callbacks: {:?} ", num_triggered);
 
-        // if let Some(num) = num_triggered {
-        // }
+        if let Some(num) = num_triggered {
+            log::info!("triggered callbacks: {:?} ", num);
+        }
 
         Ok(data.len())
     }

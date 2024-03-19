@@ -7,7 +7,6 @@ use std::{
 };
 
 use futures::lock::Mutex;
-use lazy_static::lazy_static;
 use rfs::{interfaces::FileUpdate, middleware::TransmissionProtocol, ser_de};
 use tokio::net::UdpSocket;
 
