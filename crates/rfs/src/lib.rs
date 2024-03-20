@@ -4,7 +4,8 @@ pub mod fs;
 pub mod interfaces;
 
 pub use rfs_core::{
-    middleware, payload_handler, ser_de, RemoteMethodSignature, RemoteRequest, RemotelyInvocable,
+    fsm, middleware, payload_handler, ser_de, state_transitions, RemoteMethodSignature,
+    RemoteRequest, RemotelyInvocable,
 };
 
 /// Default constants used between a client and the remote.

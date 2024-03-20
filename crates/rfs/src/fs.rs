@@ -42,3 +42,30 @@ where
 
     Ok(x.to_owned())
 }
+
+/// Returns an iterator over the entries of a directory.
+pub async fn read_dir<P: AsRef<Path>>(
+    mut ctx: rfs_core::middleware::ContextManager,
+    path: P,
+) -> io::Result<VirtReadDir> {
+    let entries = PrimitiveFsOpsClient::read_dir(
+        &mut ctx,
+        path.as_ref()
+            .to_str()
+            .and_then(|s| Some(s.to_owned()))
+            .unwrap_or_default(),
+    )
+    .await
+    .map_err(|e| io::Error::from(e))?;
+
+    Ok(VirtReadDir::from(entries))
+}
+
+mod testing {
+
+    use std::fs;
+
+    fn asd() {
+        fs::read_dir("");
+    }
+}

@@ -2,12 +2,15 @@
 
 #![allow(unused)]
 use std::{
+    borrow::Cow,
     clone,
-    fmt::Debug,
-    fs::{self, FileTimes},
+    error::Error,
+    fmt::{Debug, Display},
+    fs::{self, DirEntry, FileTimes},
     io::{self, Read},
     net::{SocketAddr, SocketAddrV4},
-    path::{Path, PathBuf},
+    ops::Deref,
+    path::{Iter, Path, PathBuf},
     time::SystemTime,
 };
 
@@ -42,7 +45,7 @@ pub enum VirtIOErr {
     Unsupported,
     UnexpectedEof,
     OutOfMemory,
-    Other,
+    Other(String),
 }
 
 /// A file that resides over the network in the remote.
@@ -92,7 +95,7 @@ pub struct VirtOpenOptions {
 /// An item inside a directory.
 ///
 /// This item can be a file, or a directory.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct VirtDirEntry {
     /// Converted from the `path()` on the remote,
     /// because PathBuf does not implement serialize/deserialize.
@@ -132,10 +135,97 @@ pub struct VirtPermissions {
 
 impl Unpin for VirtFile {}
 
-impl VirtFile
-// where
-//     T: TransmissionProtocol,
-{
+impl Display for VirtIOErr {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let err_msg: Cow<str> = match self {
+            VirtIOErr::NotFound => "the requested item was not found".into(),
+            VirtIOErr::PermissionDenied => "insufficient permissions".into(),
+            VirtIOErr::ConnectionRefused => "connection refused".into(),
+            VirtIOErr::ConnectionReset => "connection reset".into(),
+            VirtIOErr::ConnectionAborted => "connection aborted".into(),
+            VirtIOErr::NotConnected => "not connected".into(),
+            VirtIOErr::AddrInUse => "address in use".into(),
+            VirtIOErr::AddrNotAvailable => "address not available".into(),
+            VirtIOErr::BrokenPipe => "broken pipe".into(),
+            VirtIOErr::AlreadyExists => "item already exists".into(),
+            VirtIOErr::WouldBlock => "operation would block".into(),
+            VirtIOErr::InvalidInput => "invalid input".into(),
+            VirtIOErr::InvalidData => "invalid data".into(),
+            VirtIOErr::TimedOut => "request timed out".into(),
+            VirtIOErr::WriteZero => "write zero bytes".into(),
+            VirtIOErr::Interrupted => "operation interrupted".into(),
+            VirtIOErr::Unsupported => "operation unsupported".into(),
+            VirtIOErr::UnexpectedEof => "unexpected end of file".into(),
+            VirtIOErr::OutOfMemory => "out of memory".into(),
+            VirtIOErr::Other(msg) => format!("other error: {}", msg).into(),
+        };
+
+        write!(f, "{}", err_msg)
+    }
+}
+
+impl std::error::Error for VirtIOErr {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        None
+    }
+
+    fn description(&self) -> &str {
+        "description() is deprecated; use Display"
+    }
+
+    fn cause(&self) -> Option<&dyn std::error::Error> {
+        self.source()
+    }
+}
+
+// cannot impl From directly because VirtDirEntry requires more information
+// impl From<DirEntry> for VirtDirEntry {
+//     fn from(value: DirEntry) -> Self {
+//         let path = value.path();
+
+//         Self {
+//             path: path
+//                 .to_str()
+//                 .and_then(|s| Some(s.to_owned()))
+//                 .unwrap_or_default(),
+//             file: path.is_file(),
+//         }
+//     }
+// }
+
+impl VirtDirEntry {
+    /// Create a new virtual directory entry from a local directory entry and the server's base path.
+    pub fn from_dir_entry<P: AsRef<Path>>(value: DirEntry, base: P) -> Option<Self> {
+        let path = value.path();
+        let rel = path.strip_prefix(base.as_ref()).ok()?;
+
+        Some(Self {
+            path: rel
+                .to_str()
+                .and_then(|s| Some(s.to_owned()))
+                .unwrap_or_default(),
+            file: path.is_file(),
+        })
+    }
+}
+
+impl Deref for VirtReadDir {
+    type Target = Vec<VirtDirEntry>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.entries
+    }
+}
+
+impl<E: AsRef<[VirtDirEntry]>> From<E> for VirtReadDir {
+    fn from(value: E) -> Self {
+        Self {
+            entries: value.as_ref().iter().map(|entry| entry.clone()).collect(),
+        }
+    }
+}
+
+impl VirtFile {
     /// Create a new file on the remote.
     ///
     /// Attempts to mirror [std::fs::File::create]
@@ -148,14 +238,8 @@ impl VirtFile
                 .unwrap_or_default(),
         )
         .await
-        .map_err(|_| io::Error::new(io::ErrorKind::Other, "File creation error"))?;
-
-        if !res {
-            return Err(io::Error::new(
-                io::ErrorKind::Other,
-                "failed to create file",
-            ));
-        }
+        .map_err(|_| io::Error::new(io::ErrorKind::Other, "invocation error"))?
+        .map_err(|e| io::Error::from(e))?;
 
         Ok(Self {
             ctx,
@@ -446,7 +530,12 @@ impl From<io::Error> for VirtIOErr {
             io::ErrorKind::Unsupported => Self::Unsupported,
             io::ErrorKind::UnexpectedEof => Self::UnexpectedEof,
             io::ErrorKind::OutOfMemory => Self::OutOfMemory,
-            io::ErrorKind::Other => Self::Other,
+            io::ErrorKind::Other => Self::Other(
+                value
+                    .source()
+                    .and_then(|s| Some(s.to_string()))
+                    .unwrap_or_default(),
+            ),
 
             _ => unimplemented!("unstable library variants not handled"),
         }
@@ -475,7 +564,7 @@ impl From<VirtIOErr> for io::Error {
             VirtIOErr::Unsupported => io::Error::new(io::ErrorKind::Unsupported, ""),
             VirtIOErr::UnexpectedEof => io::Error::new(io::ErrorKind::UnexpectedEof, ""),
             VirtIOErr::OutOfMemory => io::Error::new(io::ErrorKind::OutOfMemory, ""),
-            VirtIOErr::Other => io::Error::new(io::ErrorKind::Other, ""),
+            VirtIOErr::Other(msg) => io::Error::new(io::ErrorKind::Other, msg),
         }
     }
 }

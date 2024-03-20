@@ -11,6 +11,7 @@ use rfs_core::RemoteMethodSignature;
 use serde::Deserialize;
 use serde::Serialize;
 
+use crate::fs::VirtDirEntry;
 use crate::fs::VirtIOErr;
 
 /// Immutable file operations are defined in this interface.
@@ -66,25 +67,25 @@ pub trait PrimitiveFsOps {
     ///
     /// This will truncate any data if the file already exists.
     /// Returns the result of the operation.
-    async fn create(path: String) -> bool;
+    async fn create(path: String) -> Result<(), VirtIOErr>;
 
     /// Remove a file at a specified path. Returns the result of the operation.
-    async fn remove(path: String) -> bool;
+    async fn remove(path: String) -> Result<(), VirtIOErr>;
 
     /// Rename a file or directory at a specified path. Returns the result of the operation.
-    async fn rename(path: String, from: String, to: String) -> bool;
+    async fn rename(path: String, from: String, to: String) -> Result<(), VirtIOErr>;
 
     /// Create a directory.
-    async fn mkdir(path: String) -> bool;
+    async fn mkdir(path: String) -> Result<(), VirtIOErr>;
 
     /// Remove a directory.
-    async fn rmdir(path: String) -> bool;
+    async fn rmdir(path: String) -> Result<(), VirtIOErr>;
 
     /// Read the contents of a directory
-    async fn read_dir(path: String) -> bool;
+    async fn read_dir(path: String) -> Vec<VirtDirEntry>;
 
     /// Returns the size of the file in bytes.
-    async fn file_size(path: String) -> usize;
+    async fn file_size(path: String) -> Result<usize, VirtIOErr>;
 }
 
 /// File write modes
