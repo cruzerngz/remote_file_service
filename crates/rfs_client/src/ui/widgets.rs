@@ -41,8 +41,15 @@ impl Widget for FsTree {
     where
         Self: Sized,
     {
-        let lines = match self.entries.last() {
-            Some(dir) => dir
+        // a block takes up 1 line at the top and bottom.
+        // if this widget renders with a border, this const needs to be set to 2.
+        // if this widget renders without a border, this const needs to be set to 0.
+        const FRAME_BORDER_LINES: usize = 2;
+
+        let lines = match (self.entries.last(), self.selection) {
+            (None, None) => Vec::new(),
+            (None, Some(_)) => Vec::new(),
+            (Some(dirs), None) => dirs
                 .iter()
                 .enumerate()
                 .map(|(idx, en)| {
@@ -55,18 +62,50 @@ impl Widget for FsTree {
                         )
                     };
 
-                    // highlight selection
-                    if let Some(line_num) = self.selection {
-                        if line_num == idx {
-                            contents = contents.reversed()
-                        }
-                    }
-
                     Line::from(contents)
                 })
                 .collect::<Vec<_>>(),
 
-            None => Vec::new(),
+            (Some(dirs), Some(mut selection)) => {
+                let lines: Box<dyn Iterator<Item = _>> = match dirs.len()
+                    > area.height as usize - FRAME_BORDER_LINES
+                    && selection + 1 > area.height as usize - FRAME_BORDER_LINES
+                {
+                    true => {
+                        let new_iter = Box::new(
+                            dirs.iter()
+                                .take(selection + 1)
+                                .rev()
+                                .take(area.height as usize - FRAME_BORDER_LINES)
+                                .rev(),
+                        );
+                        selection = area.height as usize - 1 - FRAME_BORDER_LINES;
+                        new_iter
+                    }
+                    false => Box::new(dirs.iter()),
+                };
+
+                lines
+                    .enumerate()
+                    .map(|(idx, en)| {
+                        let mut contents = if en.is_file() {
+                            Span::raw(en.path().to_str().expect("invalid path"))
+                        } else {
+                            Span::styled(
+                                en.path().to_str().expect("invalid path"),
+                                Style::new().green().bold(),
+                            )
+                        };
+
+                        // highlight selection
+                        if selection == idx {
+                            contents = contents.reversed()
+                        }
+
+                        Line::from(contents)
+                    })
+                    .collect::<Vec<_>>()
+            }
         };
 
         let para = Paragraph::new(lines)
@@ -166,6 +205,8 @@ impl StderrLogs {
 
     /// Push additional logs to the ring buffer
     pub fn push(&mut self, log: String) {
+        // strip empty lines
+        // logs always have something
         let lines = log
             .split("\n")
             .filter_map(|l| match l.len() {
