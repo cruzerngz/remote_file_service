@@ -2,57 +2,101 @@
 //!
 #![allow(unused)]
 
-use std::io::{self, stdout, Stdout};
+mod app;
+mod contents;
+mod tui;
+
+use std::{
+    borrow::Borrow,
+    io::{self, stdout, Stdout},
+    time::Duration,
+};
 
 use crossterm::{
+    event::{Event, KeyEvent, KeyEventKind, MouseEvent},
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
-use ratatui::{backend::CrosstermBackend, Frame, Terminal};
+use futures::{FutureExt, SinkExt, StreamExt};
+use ratatui::{
+    backend::{Backend, CrosstermBackend},
+    layout::{Constraint, Layout, Rect},
+    Frame, Terminal,
+};
+use rfs::fs::VirtReadDir;
+use tokio::{
+    sync::mpsc::{self, UnboundedReceiver, UnboundedSender},
+    task::JoinHandle,
+};
+use tokio_util::sync::CancellationToken;
 
 /// This is the main terminal type used inside main
 pub type Ui = Terminal<CrosstermBackend<Stdout>>;
 
-/// Main UI application
-#[derive(Debug, Default)]
-pub struct App {
-    exit: bool,
+/// UI refreshes at this frequency
+pub const TICK_PERIOD: Duration = Duration::from_millis(1000 / 60);
+
+
+
+#[derive(Debug)]
+pub enum SelectedScreen {
+    /// Main content window
+    ContentWindow,
+
+    /// Filesystem widget
+    FilesystemTree,
+
+    /// Logs redirected from stderr
+    StderrLogs, // this should be unselectable, but ill leave it here for now
 }
 
-/// Initialize the terminal
-pub fn init() -> io::Result<Ui> {
-    execute!(stdout(), EnterAlternateScreen)?;
-    enable_raw_mode()?;
-
-    Terminal::new(CrosstermBackend::new(stdout()))
+/// Spawns the UI event handler.
+/// This converts crossterm events into our own custom events
+pub struct EventHandler {
+    rx: mpsc::UnboundedReceiver<Event>,
 }
 
-/// Restores the terminal to its previous state
-pub fn restore() -> io::Result<()> {
-    execute!(stdout(), LeaveAlternateScreen)?;
-    disable_raw_mode()?;
+/// Events that change the selected screen
+#[derive(Debug)]
+pub enum SelectedScreenEvents {}
+
+
+pub async fn run() -> io::Result<()> {
+    // let mut term = init()?;
+    // let mut app = App::new(60.0, 60.0);
+
+    loop {
+        // if app.exit {
+        //     break;
+        // }
+    }
 
     Ok(())
 }
 
-impl App {
-    /// This is the main render loop
-    pub async fn run(&mut self, terminal: &mut Ui) -> io::Result<()> {
-        while !self.exit {
-            // do stuff
-            terminal.draw(|fr| self.render_frame(fr))?;
-            self.handle_events().await?;
-        }
+impl EventHandler {
+    pub fn new() -> Self {
+        let (tx, rx) = mpsc::unbounded_channel();
 
-        Ok(())
+        // spawn the event handler
+        tokio::spawn(async move {
+            loop {
+                if crossterm::event::poll(TICK_PERIOD).expect("poll failed") {
+                    if let Ok(ev) = crossterm::event::read() {
+                        tx.send(ev).expect("event send failed");
+                    }
+                }
+            }
+        });
+
+        Self { rx }
     }
 
-    fn render_frame(&self, frame: &mut Frame<'_>) {
-        todo!()
-    }
-
-    // event handling logic here (file opening, discovery, etc.s)
-    async fn handle_events(&mut self) -> io::Result<()> {
-        todo!()
+    /// Block and wait for the next event
+    pub async fn next(&mut self) -> io::Result<Event> {
+        self.rx.recv().await.ok_or(io::Error::new(
+            io::ErrorKind::BrokenPipe,
+            "failed to get event from channel",
+        ))
     }
 }

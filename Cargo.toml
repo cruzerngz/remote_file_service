@@ -19,6 +19,13 @@ rand = "0"
 
 # bin stuffs
 pretty_env_logger = "0"
-tokio = { version = "1", features = ["macros", "rt-multi-thread", "time", "net"] }
+tokio = { version = "1", features = [
+    "macros",
+    "rt-multi-thread",
+    "time",
+    "net",
+    "sync",
+] }
+tokio-util = "0"
 clap = { version = "4", features = ["derive", "string"] }
 humantime = "2"

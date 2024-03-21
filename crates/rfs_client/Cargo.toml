@@ -11,10 +11,11 @@ rfs = { path = "../rfs" }
 
 clap = { workspace = true }
 tokio = { workspace = true }
+tokio-util = { workspace = true }
 log = { workspace = true }
 pretty_env_logger = { workspace = true }
 futures = { workspace = true }
 
-crossterm = "0"
+crossterm = { version = "0", features = ["event-stream"] }
 ratatui = { version = "0", features = ["all-widgets"] }
 humantime = { workspace = true }
