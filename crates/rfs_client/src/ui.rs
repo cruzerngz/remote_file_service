@@ -5,6 +5,7 @@
 mod app;
 mod contents;
 mod tui;
+mod widgets;
 
 use std::{
     borrow::Borrow,
@@ -36,7 +37,7 @@ pub type Ui = Terminal<CrosstermBackend<Stdout>>;
 /// UI refreshes at this frequency
 pub const TICK_PERIOD: Duration = Duration::from_millis(1000 / 60);
 
-
+pub use app::App;
 
 #[derive(Debug)]
 pub enum SelectedScreen {
@@ -59,7 +60,6 @@ pub struct EventHandler {
 /// Events that change the selected screen
 #[derive(Debug)]
 pub enum SelectedScreenEvents {}
-
 
 pub async fn run() -> io::Result<()> {
     // let mut term = init()?;

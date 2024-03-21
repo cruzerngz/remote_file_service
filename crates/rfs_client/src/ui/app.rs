@@ -1,6 +1,6 @@
 //! App module. Contains application state
 
-use std::io;
+use std::{collections::HashMap, io};
 
 use rfs::{fs::VirtReadDir, middleware::ContextManager};
 
@@ -12,9 +12,12 @@ pub struct App {
     exit: bool,
 
     ctx: ContextManager,
-    // filesystem state for the fs widget
-    filesystem: VirtReadDir,
-    filesystem_pos: usize,
+
+    // open filesystem directories
+    fs_dirs: HashMap<String, VirtReadDir>,
+
+    // current selection in the filsystem
+    filesystem_pos: (String, usize),
 }
 
 impl App {
@@ -22,7 +25,7 @@ impl App {
         Self {
             exit: false,
             ctx,
-            filesystem: todo!(),
+            fs_dirs: todo!(),
             filesystem_pos: todo!(),
         }
     }

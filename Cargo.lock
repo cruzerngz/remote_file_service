@@ -743,6 +743,7 @@ dependencies = [
  "pretty_env_logger",
  "ratatui",
  "rfs",
+ "shh",
  "tokio",
  "tokio-util",
 ]
@@ -836,6 +837,16 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.49",
+]
+
+[[package]]
+name = "shh"
+version = "1.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5205eb079ac8be8ec77b7470aff4a050610d42c32819deee362ca414c926d3ab"
+dependencies = [
+ "libc",
+ "winapi",
 ]
 
 [[package]]

@@ -100,24 +100,11 @@ async fn main() -> io::Result<()> {
             test::test_mode(manager).await?;
             return Ok(());
         }
-        false => (),
+        false => {
+            let mut app = ui::App::new(manager, 60.0, 4.0);
+            app.run().await?;
+        }
     }
-
-    // println!("file contents: {}", contents);
-
-    // let res = PrimitiveFsOpsClient::read_bytes(&mut manager, "remote_file.txt".to_string()).await?;
-
-    // println!("length of contents: {:?}", res.len());
-
-    // let mut buf = [0_u8; 1000];
-    // file.poll_read(&mut buf).await?;
-
-    // let mut term = ui::init()?;
-
-    // let mut app = ui::App::default();
-    // app.run(&mut term).await?;
-
-    // ui::restore()?;
 
     return Ok(());
 }

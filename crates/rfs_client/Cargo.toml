@@ -19,3 +19,4 @@ futures = { workspace = true }
 crossterm = { version = "0", features = ["event-stream"] }
 ratatui = { version = "0", features = ["all-widgets"] }
 humantime = { workspace = true }
+shh = "1"

@@ -1,9 +1,17 @@
 //! Tui module. Handles rendering/// Terminal ui struct.
 
-use std::io;
+use std::{
+    io,
+    ops::{Deref, DerefMut},
+    time::Duration,
+};
 
 use crossterm::{
-    event::{self, Event, KeyEvent, KeyEventKind, MouseEvent},
+    cursor,
+    event::{
+        self, DisableBracketedPaste, DisableMouseCapture, EnableBracketedPaste, EnableMouseCapture,
+        Event, KeyEvent, KeyEventKind, MouseEvent,
+    },
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
@@ -11,10 +19,11 @@ use futures::{FutureExt, StreamExt};
 use ratatui::{
     backend::{Backend, CrosstermBackend},
     layout::{Constraint, Layout, Rect},
+    widgets::{Block, Borders},
     Frame, Terminal,
 };
 use tokio::{
-    sync::mpsc::{UnboundedReceiver, UnboundedSender},
+    sync::mpsc::{self, UnboundedReceiver, UnboundedSender},
     task::JoinHandle,
 };
 use tokio_util::sync::CancellationToken;
@@ -23,15 +32,19 @@ use tokio_util::sync::CancellationToken;
 /// This is the main terminal type used inside main
 pub type Ui = Terminal<CrosstermBackend<std::io::Stdout>>;
 
-#[derive(Debug)]
+/// Default block for the UI
+pub const DEFAULT_BLOCK: Block = Block::new().borders(Borders::ALL);
+
 pub struct Tui {
-    pub terminal: Ui,
+    pub terminal: ratatui::Terminal<CrosstermBackend<std::io::Stdout>>,
     pub task: JoinHandle<()>,
     pub cancellation_token: CancellationToken,
     pub event_rx: UnboundedReceiver<AppEvent>,
     pub event_tx: UnboundedSender<AppEvent>,
     pub frame_rate: f64,
     pub tick_rate: f64,
+    pub mouse: bool,
+    pub paste: bool,
 }
 
 /// Various rectangles rendered on the screen
@@ -81,35 +94,67 @@ pub fn restore_terminal() -> io::Result<()> {
 
     Ok(())
 }
-
 impl Tui {
-    pub fn new(frame_rate: f64, tick_rate: f64) -> io::Result<Self> {
-        let (event_tx, event_rx) = tokio::sync::mpsc::unbounded_channel();
-
+    pub fn new(tick_rate: f64, frame_rate: f64) -> io::Result<Self> {
+        let terminal = ratatui::Terminal::new(CrosstermBackend::new(std::io::stdout()))?;
+        let (event_tx, event_rx) = mpsc::unbounded_channel();
+        let cancellation_token = CancellationToken::new();
+        let task = tokio::spawn(async {});
+        let mouse = false;
+        let paste = false;
         Ok(Self {
-            terminal: Terminal::new(CrosstermBackend::new(std::io::stdout()))?,
-            task: tokio::spawn(async {}),
-            cancellation_token: CancellationToken::new(),
+            terminal,
+            task,
+            cancellation_token,
             event_rx,
             event_tx,
             frame_rate,
             tick_rate,
+            mouse,
+            paste,
         })
+    }
+
+    pub fn tick_rate(mut self, tick_rate: f64) -> Self {
+        self.tick_rate = tick_rate;
+        self
+    }
+
+    pub fn frame_rate(mut self, frame_rate: f64) -> Self {
+        self.frame_rate = frame_rate;
+        self
+    }
+
+    pub fn mouse(mut self, mouse: bool) -> Self {
+        self.mouse = mouse;
+        self
+    }
+
+    pub fn paste(mut self, paste: bool) -> Self {
+        self.paste = paste;
+        self
     }
 
     pub fn start(&mut self) {
         let tick_delay = std::time::Duration::from_secs_f64(1.0 / self.tick_rate);
         let render_delay = std::time::Duration::from_secs_f64(1.0 / self.frame_rate);
+        self.cancel();
+        self.cancellation_token = CancellationToken::new();
+        let _cancellation_token = self.cancellation_token.clone();
         let _event_tx = self.event_tx.clone();
         self.task = tokio::spawn(async move {
             let mut reader = crossterm::event::EventStream::new();
             let mut tick_interval = tokio::time::interval(tick_delay);
             let mut render_interval = tokio::time::interval(render_delay);
+            _event_tx.send(AppEvent::Init).unwrap();
             loop {
                 let tick_delay = tick_interval.tick();
                 let render_delay = render_interval.tick();
                 let crossterm_event = reader.next().fuse();
                 tokio::select! {
+                  _ = _cancellation_token.cancelled() => {
+                    break;
+                  }
                   maybe_event = crossterm_event => {
                     match maybe_event {
                       Some(Ok(evt)) => {
@@ -119,7 +164,21 @@ impl Tui {
                               _event_tx.send(AppEvent::Key(key)).unwrap();
                             }
                           },
-                          _ => todo!("handle other events here")
+                          Event::Mouse(mouse) => {
+                            _event_tx.send(AppEvent::Mouse(mouse)).unwrap();
+                          },
+                          Event::Resize(x, y) => {
+                            _event_tx.send(AppEvent::Resize(x, y)).unwrap();
+                          },
+                          Event::FocusLost => {
+                            _event_tx.send(AppEvent::FocusLost).unwrap();
+                          },
+                          Event::FocusGained => {
+                            _event_tx.send(AppEvent::FocusGained).unwrap();
+                          },
+                          Event::Paste(s) => {
+                            _event_tx.send(AppEvent::Paste(s)).unwrap();
+                          },
                         }
                       }
                       Some(Err(_)) => {
@@ -139,12 +198,92 @@ impl Tui {
         });
     }
 
-    /// Block until the next event is received
+    pub fn stop(&self) -> io::Result<()> {
+        self.cancel();
+        let mut counter = 0;
+        while !self.task.is_finished() {
+            std::thread::sleep(Duration::from_millis(1));
+            counter += 1;
+            if counter > 50 {
+                self.task.abort();
+            }
+            if counter > 100 {
+                log::error!("Failed to abort task in 100 milliseconds for unknown reason");
+                break;
+            }
+        }
+        Ok(())
+    }
+
+    pub fn enter(&mut self) -> io::Result<()> {
+        crossterm::terminal::enable_raw_mode()?;
+        crossterm::execute!(std::io::stderr(), EnterAlternateScreen, cursor::Hide)?;
+        if self.mouse {
+            crossterm::execute!(std::io::stderr(), EnableMouseCapture)?;
+        }
+        if self.paste {
+            crossterm::execute!(std::io::stderr(), EnableBracketedPaste)?;
+        }
+        self.start();
+        Ok(())
+    }
+
+    pub fn exit(&mut self) -> io::Result<()> {
+        self.stop()?;
+        if crossterm::terminal::is_raw_mode_enabled()? {
+            self.flush()?;
+            if self.paste {
+                crossterm::execute!(std::io::stderr(), DisableBracketedPaste)?;
+            }
+            if self.mouse {
+                crossterm::execute!(std::io::stderr(), DisableMouseCapture)?;
+            }
+            crossterm::execute!(std::io::stderr(), LeaveAlternateScreen, cursor::Show)?;
+            crossterm::terminal::disable_raw_mode()?;
+        }
+        Ok(())
+    }
+
+    pub fn cancel(&self) {
+        self.cancellation_token.cancel();
+    }
+
+    pub fn suspend(&mut self) -> io::Result<()> {
+        self.exit()?;
+        #[cfg(not(windows))]
+        // signal_hook::low_level::raise(signal_hook::consts::signal::SIGTSTP)?;
+        Ok(())
+    }
+
+    pub fn resume(&mut self) -> io::Result<()> {
+        self.enter()?;
+        Ok(())
+    }
+
     pub async fn next(&mut self) -> Option<AppEvent> {
         self.event_rx.recv().await
     }
 }
 
+impl Deref for Tui {
+    type Target = ratatui::Terminal<CrosstermBackend<std::io::Stdout>>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.terminal
+    }
+}
+
+impl DerefMut for Tui {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.terminal
+    }
+}
+
+impl Drop for Tui {
+    fn drop(&mut self) {
+        self.exit().unwrap();
+    }
+}
 // generate the window bounds from a frame.
 // there are 4 windows, logs, content, filesystem, commands.
 impl From<&Frame<'_>> for UIWindows {
@@ -178,35 +317,41 @@ impl From<&Frame<'_>> for UIWindows {
 
 #[cfg(test)]
 mod tests {
-    use std::borrow::Borrow;
+    use std::{borrow::Borrow, io::Read};
 
     use ratatui::{
         style::Stylize,
         widgets::{block::Title, Block, BorderType, Borders, Paragraph},
     };
 
+    use crate::ui::widgets::StderrLogs;
+
     // use ratatui::Terminal;
     use super::*;
 
+    // #[ignore = "this test is for manual testing only"]
     #[test]
     fn test_render_boxes() -> io::Result<()> {
+        let mut sh = shh::stderr()?;
+
+        pretty_env_logger::formatted_builder()
+            .parse_filters("debug")
+            .init();
+
         init_terminal()?;
 
         let mut terminal = Terminal::new(CrosstermBackend::new(std::io::stdout()))?;
 
-        // terminal.draw(|frame| {
-        //     let windows = UIWindows::from(frame.borrow());
+        let mut logs = StderrLogs::new();
 
-        //     frame.render_widget(
-        //         Paragraph::new("hello world from the main content window"),
-        //         windows.content,
-        //     );
-
-        //     frame.render_widget(
-        //         Paragraph::new("hello world from the logs window"),
-        //         windows.logs,
-        //     );
-        // });
+        let handle = std::thread::spawn(|| {
+            let mut count = 0;
+            loop {
+                std::thread::sleep(Duration::from_millis(500));
+                count += 1;
+                log::info!("this is log line {}", count);
+            }
+        });
 
         loop {
             // wait for a crossterm keypress
@@ -215,6 +360,10 @@ mod tests {
                     break;
                 }
             } else {
+                let mut new_logs = String::new();
+                sh.read_to_string(&mut new_logs)?;
+                logs.push(new_logs);
+
                 terminal.draw(|frame| {
                     let windows = UIWindows::from(frame.borrow());
 
@@ -255,15 +404,7 @@ mod tests {
                         windows.commands,
                     );
 
-                    frame.render_widget(
-                        Paragraph::new("This is the stderr logs box").block(
-                            Block::new().borders(Borders::ALL).title(
-                                Title::from("logs".gray().bold())
-                                    .alignment(ratatui::layout::Alignment::Center),
-                            ),
-                        ),
-                        windows.logs,
-                    )
+                    frame.render_widget(logs.clone(), windows.logs)
                 });
             }
         }
