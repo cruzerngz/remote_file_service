@@ -178,23 +178,11 @@ impl std::error::Error for VirtIOErr {
     }
 }
 
-// cannot impl From directly because VirtDirEntry requires more information
-// impl From<DirEntry> for VirtDirEntry {
-//     fn from(value: DirEntry) -> Self {
-//         let path = value.path();
-
-//         Self {
-//             path: path
-//                 .to_str()
-//                 .and_then(|s| Some(s.to_owned()))
-//                 .unwrap_or_default(),
-//             file: path.is_file(),
-//         }
-//     }
-// }
-
 impl VirtDirEntry {
     /// Create a new virtual directory entry from a local directory entry and the server's base path.
+    ///
+    /// If base is not a prefix of the entry's path, this method will return None.
+    /// This is used instead of `From<DirEntry>` because of the additional base path requirement.
     pub fn from_dir_entry<P: AsRef<Path>>(value: DirEntry, base: P) -> Option<Self> {
         let path = value.path();
         let rel = path.strip_prefix(base.as_ref()).ok()?;
@@ -207,8 +195,23 @@ impl VirtDirEntry {
             file: path.is_file(),
         })
     }
+
+    /// Returns the path of the entry
+    pub fn path(&self) -> &Path {
+        self.path.as_ref()
+    }
+
+    /// Returns true if the entry is a file
+    pub fn is_file(&self) -> bool {
+        self.file
+    }
+
+    pub fn metadata(&self) -> VirtMetadata {
+        todo!()
+    }
 }
 
+// deref inner vector
 impl Deref for VirtReadDir {
     type Target = Vec<VirtDirEntry>;
 
@@ -303,23 +306,18 @@ impl VirtFile {
     }
 
     /// Write to the file from a vector of bytes.
-    pub async fn write_bytes(&mut self, bytes: &[u8], mode: FileWriteMode) -> io::Result<usize> {
+    pub async fn write_bytes(&mut self, data: FileUpdate) -> io::Result<usize> {
         let path = self.as_path();
 
-        let update = match mode {
-            FileWriteMode::Append => FileUpdate::Append(bytes.to_vec()),
-            FileWriteMode::Truncate => FileUpdate::Overwrite(bytes.to_vec()),
-            FileWriteMode::Insert(offset) => FileUpdate::Insert((offset, bytes.to_vec())),
-        };
-
-        let res = PrimitiveFsOpsClient::write_bytes(&mut self.ctx, path, bytes.to_vec(), mode)
+        let res = PrimitiveFsOpsClient::write_bytes(&mut self.ctx, path, data.clone())
             .await
             .map_err(|e| io::Error::from(e))?;
 
+        let size = data.len();
         // update local buf only after write request completes
-        self.local_buf = update.update_file(&self.local_buf);
+        self.local_buf = data.update_file(&self.local_buf);
 
-        Ok(bytes.len())
+        Ok(size)
     }
 
     /// Blocks until the file is updated. The new file contents are returned.
@@ -350,23 +348,7 @@ impl VirtFile {
     }
 }
 
-// local helper method
-impl FileUpdate {
-    /// Perform the file update based on the previous file contents
-    pub fn update_file(self, prev: &[u8]) -> Vec<u8> {
-        match self {
-            FileUpdate::Append(data) => [prev, data.as_slice()].concat(),
-            FileUpdate::Insert((offset, data)) => match prev.len() {
-                0 => data,
-                _ => {
-                    let (left, right) = prev.split_at(offset);
-                    [left, data.as_slice(), right].concat()
-                }
-            },
-            FileUpdate::Overwrite(data) => data.to_owned(),
-        }
-    }
-}
+
 
 impl VirtOpenOptions
 // where
@@ -461,23 +443,13 @@ impl VirtOpenOptions
 
 /// Converts a socket address to a V4 one.
 /// V6 addresses will return an error.
-pub fn sockaddr_to_v4(addr: SocketAddr) -> io::Result<SocketAddrV4> {
+fn sockaddr_to_v4(addr: SocketAddr) -> io::Result<SocketAddrV4> {
     match addr {
         SocketAddr::V4(a) => Ok(a),
         SocketAddr::V6(_) => Err(io::Error::new(
             io::ErrorKind::Unsupported,
             "IPv6 addresses are not supported",
         )),
-    }
-}
-
-impl VirtDirEntry {
-    pub fn path(&self) -> PathBuf {
-        todo!()
-    }
-
-    pub fn metadata(&self) -> VirtMetadata {
-        todo!()
     }
 }
 

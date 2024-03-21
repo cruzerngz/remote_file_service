@@ -50,10 +50,10 @@ pub async fn test_mode(mut ctx: ContextManager) -> io::Result<()> {
 
     log::info!("writing to file from another client");
     let _ = file
-        .write_bytes(
-            "hello world hello world\n".as_bytes(),
-            rfs::interfaces::FileWriteMode::Insert(3),
-        )
+        .write_bytes(FileUpdate::Insert((
+            3,
+            "hello world hello world\n".as_bytes().to_vec(),
+        )))
         .await?;
     log::info!("wrote update to file");
 

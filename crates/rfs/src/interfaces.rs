@@ -2,7 +2,6 @@
 //!
 //! All traits have [`remote_interface`] attribute and only contain async functions.
 
-use std::fs::File;
 use std::net::SocketAddrV4;
 use std::path::PathBuf;
 
@@ -52,11 +51,7 @@ pub trait PrimitiveFsOps {
     /// Writes some bytes into a file path, returning the number of bytes written.
     ///
     /// Use the `mode` parameter to specify the write mode.
-    async fn write_bytes(
-        path: String,
-        bytes: Vec<u8>,
-        mode: FileWriteMode,
-    ) -> Result<usize, VirtIOErr>;
+    async fn write_bytes(path: String, bytes: FileUpdate) -> Result<usize, VirtIOErr>;
 
     /// Writes some bytes into a file path, returning the number of bytes written.
     ///
@@ -157,6 +152,34 @@ pub trait StreamingOps {
     /// The path to the file may or may not be valid.
     /// File contents can be overridden or appended by setting `overwrite` to `true` or `false`.
     async fn open_blob_file_rx(path: String, overwrite: bool) -> SocketAddrV4;
+}
+
+impl FileUpdate {
+    /// Perform the file update based on the previous file contents
+    pub fn update_file(self, prev: &[u8]) -> Vec<u8> {
+        match self {
+            FileUpdate::Append(data) => [prev, data.as_slice()].concat(),
+            FileUpdate::Insert((offset, data)) => match prev.len() <= offset {
+                true => {
+                    let (left, right) = prev.split_at(prev.len());
+                    [left, data.as_slice(), right].concat()
+                }
+                false => {
+                    let (left, right) = prev.split_at(offset);
+                    [left, data.as_slice(), right].concat()
+                }
+            },
+            FileUpdate::Overwrite(data) => data.to_owned(),
+        }
+    }
+
+    pub fn len(&self) -> usize {
+        match self {
+            FileUpdate::Append(data) => data.len(),
+            FileUpdate::Insert((_, data)) => data.len(),
+            FileUpdate::Overwrite(data) => data.len(),
+        }
+    }
 }
 
 #[cfg(test)]

@@ -194,60 +194,18 @@ impl PrimitiveFsOps for RfsServer {
         }
     }
 
-    async fn write_bytes(
-        &mut self,
-        path: String,
-        bytes: Vec<u8>,
-        mode: FileWriteMode,
-    ) -> Result<usize, VirtIOErr> {
+    async fn write_bytes(&mut self, path: String, data: FileUpdate) -> Result<usize, VirtIOErr> {
         let full_path = match self.resolve_path(&path) {
             Some(p) => p,
             None => return Err(VirtIOErr::NotFound),
         };
 
-        let res = match mode {
-            FileWriteMode::Append => (
-                OpenOptions::new().append(true).open(&full_path),
-                bytes.clone(),
-                FileUpdate::Append(bytes),
-            ),
-            FileWriteMode::Truncate => (
-                OpenOptions::new()
-                    .truncate(true)
-                    .write(true)
-                    .open(&full_path),
-                bytes.clone(),
-                FileUpdate::Overwrite(bytes),
-            ),
-            FileWriteMode::Insert(offset) => {
-                let curr_contents = fs::read(&full_path).map_err(|e| VirtIOErr::from(e))?;
-                let mut new_contents = match curr_contents.len() {
-                    0 => bytes.clone(),
-                    _ => {
-                        let (left, right) = curr_contents.split_at(offset);
+        // for simplicity, every write triggers a complete file update
+        // impl details are in [FileUpdate]
+        let existing_contents = fs::read(&full_path).map_err(|e| VirtIOErr::from(e))?;
+        let overwritten_contents = data.to_owned().update_file(&existing_contents);
 
-                        let mut constructed = Vec::with_capacity(curr_contents.len() + bytes.len());
-                        constructed.extend_from_slice(left);
-                        constructed.extend_from_slice(&bytes);
-                        constructed.extend_from_slice(right);
-
-                        constructed
-                    }
-                };
-
-                (
-                    OpenOptions::new()
-                        .truncate(true)
-                        .write(true)
-                        .open(&full_path),
-                    new_contents.clone(),
-                    FileUpdate::Insert((offset, bytes)),
-                )
-            }
-        };
-
-        let (mut f, data) = { (res.0.map_err(|e| VirtIOErr::from(e))?, res.1) };
-        f.write_all(&data).map_err(|e| VirtIOErr::from(e))?;
+        fs::write(&full_path, overwritten_contents).map_err(|e| VirtIOErr::from(e))?;
 
         let relative_path = full_path
             .strip_prefix(&self.base)
@@ -261,13 +219,14 @@ impl PrimitiveFsOps for RfsServer {
             .lock()
             .await;
 
-        let num_triggered = lock.trigger_file_update(&path, res.2).await;
+        let size = data.len();
+        let num_triggered = lock.trigger_file_update(&path, data).await;
 
         if let Some(num) = num_triggered {
             log::info!("triggered callbacks: {:?} ", num);
         }
 
-        Ok(data.len())
+        Ok(size)
     }
 
     async fn create(&mut self, path: String) -> Result<(), VirtIOErr> {
