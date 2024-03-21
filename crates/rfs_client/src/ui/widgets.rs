@@ -7,18 +7,24 @@ use ratatui::{
     text::{Line, Span},
     widgets::{block::Title, Block, Borders, Paragraph, Widget, Wrap},
 };
-use rfs::{fs::VirtReadDir, ser_de::de};
+use rfs::{
+    fs::{VirtDirEntry, VirtReadDir},
+    ser_de::de,
+};
 
 use crate::ui::tui::DEFAULT_BLOCK;
 
 /// Filesystem tree widgets
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct FsTree {
     /// The relative path to the current directory
     parent_dir: PathBuf,
 
     /// Entries in the current directory
-    entries: VirtReadDir,
+    entries: Vec<VirtReadDir>,
+
+    /// Current selection, if any
+    selection: Option<usize>,
 }
 
 /// Error log widget.
@@ -35,35 +41,45 @@ impl Widget for FsTree {
     where
         Self: Sized,
     {
-        let lines = self
-            .entries
-            .iter()
-            .enumerate()
-            .map(|(idx, en)| {
-                let line_num = Span::styled(format!("{}: ", idx), Style::new().bold().gray());
-
-                if en.is_file() {
-                    Line::from(vec![
-                        line_num,
-                        Span::raw(en.path().to_str().expect("invalid path")),
-                    ])
-                } else {
-                    Line::from(vec![
-                        line_num,
+        let lines = match self.entries.last() {
+            Some(dir) => dir
+                .iter()
+                .enumerate()
+                .map(|(idx, en)| {
+                    let mut contents = if en.is_file() {
+                        Span::raw(en.path().to_str().expect("invalid path"))
+                    } else {
                         Span::styled(
-                            en.path().to_str().expect("invalid path").to_owned(),
+                            en.path().to_str().expect("invalid path"),
                             Style::new().green().bold(),
-                        ),
-                    ])
-                }
-            })
-            .collect::<Vec<_>>();
+                        )
+                    };
+
+                    // highlight selection
+                    if let Some(line_num) = self.selection {
+                        if line_num == idx {
+                            contents = contents.reversed()
+                        }
+                    }
+
+                    Line::from(contents)
+                })
+                .collect::<Vec<_>>(),
+
+            None => Vec::new(),
+        };
 
         let para = Paragraph::new(lines)
             .block(
                 DEFAULT_BLOCK.title(
-                    Title::from(self.parent_dir.to_str().expect("invalid path"))
-                        .alignment(ratatui::layout::Alignment::Left),
+                    Title::from(
+                        self.parent_dir
+                            .to_str()
+                            .expect("invalid path")
+                            .bold()
+                            .gray(),
+                    )
+                    .alignment(ratatui::layout::Alignment::Left),
                 ),
             )
             .wrap(Wrap { trim: false });
@@ -94,6 +110,50 @@ impl Widget for StderrLogs {
             .wrap(Wrap { trim: false });
 
         para.render(area, buf)
+    }
+}
+
+impl FsTree {
+    pub fn new() -> Self {
+        Self {
+            parent_dir: PathBuf::new(),
+            entries: Vec::new(),
+            selection: None,
+        }
+    }
+
+    /// Push a virtual directory into the stack.
+    ///
+    /// This should be called when entering directories
+    pub fn push(&mut self, entries: VirtReadDir, dir: VirtDirEntry) {
+        self.entries.push(entries);
+        self.parent_dir.push(dir.path());
+    }
+
+    /// Pop the last virtual directory from the stack
+    ///
+    /// This should be called when leaving directories
+    pub fn pop(&mut self) {
+        self.entries.pop();
+        self.parent_dir.pop();
+    }
+
+    /// Select an entry by its index
+    pub fn select(&mut self, idx: Option<usize>) {
+        self.selection = match idx {
+            Some(offset) => {
+                if let Some(read_dir) = self.entries.last() {
+                    if offset < read_dir.len() {
+                        Some(offset)
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            }
+            None => None,
+        }
     }
 }
 

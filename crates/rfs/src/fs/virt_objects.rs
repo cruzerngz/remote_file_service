@@ -101,16 +101,16 @@ pub struct VirtDirEntry {
     /// because PathBuf does not implement serialize/deserialize.
     ///
     /// This path is relative to the remote's base path.
-    path: String,
+    pub path: String,
 
     /// Marker for if the entry is for a file or directory
-    file: bool,
+    pub file: bool,
 }
 
 /// Iterator over [VirtDirEntry] items.
 #[derive(Clone, Debug)]
 pub struct VirtReadDir {
-    entries: Vec<VirtDirEntry>,
+    pub entries: Vec<VirtDirEntry>,
 }
 
 /// Virtual file metadata
@@ -347,8 +347,6 @@ impl VirtFile {
         Ok(self.local_buf.clone())
     }
 }
-
-
 
 impl VirtOpenOptions
 // where

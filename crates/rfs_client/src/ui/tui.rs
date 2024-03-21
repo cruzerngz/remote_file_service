@@ -323,8 +323,9 @@ mod tests {
         style::Stylize,
         widgets::{block::Title, Block, BorderType, Borders, Paragraph},
     };
+    use rfs::fs::{VirtDirEntry, VirtReadDir};
 
-    use crate::ui::widgets::StderrLogs;
+    use crate::ui::widgets::{FsTree, StderrLogs};
 
     // use ratatui::Terminal;
     use super::*;
@@ -353,6 +354,29 @@ mod tests {
             }
         });
 
+        // we are manually creating virt objects here
+        const BASE_PATH: &str = "../..";
+
+        let cur_dir = VirtDirEntry {
+            path: BASE_PATH.to_string(),
+            file: false,
+        };
+
+        let entries = std::fs::read_dir(BASE_PATH)?;
+        let virt: Vec<_> = entries
+            .into_iter()
+            .filter_map(|entry| Some(entry.ok()?))
+            .filter_map(|entry| VirtDirEntry::from_dir_entry(entry, BASE_PATH))
+            .collect();
+
+        let num_entries = virt.len();
+        let virt_rd = VirtReadDir::from(virt);
+
+        let mut fs_tree = FsTree::new();
+        fs_tree.push(virt_rd, cur_dir);
+
+        let mut fs_selection = 0;
+
         loop {
             // wait for a crossterm keypress
             if event::poll(std::time::Duration::from_millis(16))? {
@@ -363,6 +387,14 @@ mod tests {
                 let mut new_logs = String::new();
                 sh.read_to_string(&mut new_logs)?;
                 logs.push(new_logs);
+
+                if fs_selection == num_entries - 1 {
+                    fs_selection = 0;
+                } else {
+                    fs_selection += 1;
+                }
+
+                fs_tree.select(Some(fs_selection));
 
                 terminal.draw(|frame| {
                     let windows = UIWindows::from(frame.borrow());
@@ -382,17 +414,7 @@ mod tests {
                         windows.content,
                     );
 
-                    frame.render_widget(
-                        Paragraph::new("")
-                            .wrap(ratatui::widgets::Wrap { trim: false })
-                            .block(
-                                Block::new().borders(Borders::ALL).title(
-                                    Title::from("virtual fs".gray().bold())
-                                        .alignment(ratatui::layout::Alignment::Center),
-                                ),
-                            ),
-                        windows.filesystem,
-                    );
+                    frame.render_widget(fs_tree.clone(), windows.filesystem);
 
                     frame.render_widget(
                         Paragraph::new("This is the commands box").block(
