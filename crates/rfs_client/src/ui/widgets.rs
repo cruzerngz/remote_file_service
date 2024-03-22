@@ -74,6 +74,12 @@ pub struct ContentWindow {
     /// This will highlight the current line and character in the file.
     cursor_pos: Option<(u16, u16)>,
 
+    /// Area of text to highlight, from start position to end position.
+    ///
+    /// This item supercedes the cursor position.
+    /// If this is Some(_), the cursor is not rendered.
+    highlight: Option<((u16, u16), (u16, u16))>,
+
     /// Notifications are displayed over the main contents like a pop-up.
     /// Errors take precedence over notifications.
     notification: Option<String>,
@@ -367,7 +373,7 @@ impl Widget for ContentWindow {
                         lines
                             .iter()
                             .skip(
-                                cursor_y as usize + 1 + 2 - area.height as usize
+                                (cursor_y as usize + 1 + 2).saturating_sub(area.height as usize)
                                     + FRAME_BORDER_LINES,
                             )
                             .take(area.height as usize - FRAME_BORDER_LINES)
@@ -526,6 +532,7 @@ impl ContentWindow {
         Self {
             contents: None,
             cursor_pos: None,
+            highlight: None,
             notification: None,
             error_message: None,
         }
@@ -546,6 +553,11 @@ impl ContentWindow {
 
     pub fn set_cursor_pos(&mut self, pos: Option<(u16, u16)>) {
         self.cursor_pos = pos;
+    }
+
+    /// Highlight a section of text in the file
+    pub fn set_highlight(&mut self, highlight: Option<((u16, u16), (u16, u16))>) {
+        self.highlight = highlight;
     }
 
     /// Get the lines and cursor position
@@ -731,5 +743,52 @@ impl ContentWindow {
         }
 
         self.cursor_pos = Some((curr_x, curr_y));
+    }
+}
+
+/// Highlight a section of the line.
+///
+/// The end char index is exclusive.
+fn highlight_line_section(line: &str, start: u16, end: u16, style: Style) -> Vec<Span> {
+    let chars = line.chars().collect::<Vec<_>>();
+
+    match (
+        start < end,
+        start < chars.len() as u16,
+        end < chars.len() as u16,
+    ) {
+        // we are happy
+        (true, true, true) => {
+            let (left, center) = chars.split_at(start as usize);
+
+            let (to_highlight, right) = center.split_at((end - start) as usize);
+
+            vec![
+                Span::raw(left.iter().collect::<String>()),
+                Span::styled(to_highlight.iter().collect::<String>(), style),
+                Span::raw(right.iter().collect::<String>()),
+            ]
+        }
+
+        // no highlighting
+        _ => {
+            vec![Span::raw(line)]
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+
+    use super::*;
+
+    #[test]
+    fn test_highlight_line_section() {
+        let line = "hello world";
+        let style = Style::new().reversed();
+
+        let spans = highlight_line_section(line, 2, 6, style);
+
+        assert_eq!(spans.len(), 3);
     }
 }

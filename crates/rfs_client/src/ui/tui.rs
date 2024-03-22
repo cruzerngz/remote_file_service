@@ -456,7 +456,7 @@ mod tests {
 
         loop {
             // wait for a crossterm keypress
-            if event::poll(std::time::Duration::from_millis(16))? {
+            if event::poll(std::time::Duration::from_millis(100))? {
                 if let Event::Key(key) = event::read()? {
                     break;
                 }
@@ -487,6 +487,8 @@ mod tests {
                         std::time::Instant::now().hash(&mut hasher);
                         hasher.finish()
                     };
+
+                    // content_widget.cursor_down();
 
                     match hash_time % 3 {
                         0 => content_widget.cursor_down(),
