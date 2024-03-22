@@ -422,26 +422,30 @@ mod tests {
             }
         });
 
-        // we are manually creating virt objects here
-        const BASE_PATH: &str = "../..";
+        let (mut fs_tree, num_entries) = {
+            // we are manually creating virt objects here
+            const BASE_PATH: &str = "../..";
 
-        let cur_dir = VirtDirEntry {
-            path: BASE_PATH.to_string(),
-            file: false,
+            let cur_dir = VirtDirEntry {
+                path: BASE_PATH.to_string(),
+                file: false,
+            };
+
+            let entries = std::fs::read_dir(BASE_PATH)?;
+            let virt: Vec<_> = entries
+                .into_iter()
+                .filter_map(|entry| Some(entry.ok()?))
+                .filter_map(|entry| VirtDirEntry::from_dir_entry(entry, BASE_PATH))
+                .collect();
+
+            let num_entries = virt.len();
+            let virt_rd = VirtReadDir::from(virt);
+
+            let mut tree = FsTree::new();
+            tree.push(virt_rd, cur_dir);
+
+            (tree, num_entries)
         };
-
-        let entries = std::fs::read_dir(BASE_PATH)?;
-        let virt: Vec<_> = entries
-            .into_iter()
-            .filter_map(|entry| Some(entry.ok()?))
-            .filter_map(|entry| VirtDirEntry::from_dir_entry(entry, BASE_PATH))
-            .collect();
-
-        let num_entries = virt.len();
-        let virt_rd = VirtReadDir::from(virt);
-
-        let mut fs_tree = FsTree::new();
-        fs_tree.push(virt_rd, cur_dir);
 
         let mut fs_selection = 0;
 
@@ -456,7 +460,7 @@ mod tests {
 
         loop {
             // wait for a crossterm keypress
-            if event::poll(std::time::Duration::from_millis(100))? {
+            if event::poll(std::time::Duration::from_millis(1000))? {
                 if let Event::Key(key) = event::read()? {
                     break;
                 }
@@ -490,13 +494,24 @@ mod tests {
 
                     // content_widget.cursor_down();
 
-                    match hash_time % 3 {
-                        0 => content_widget.cursor_down(),
-                        1 => content_widget.cursor_up(),
-                        2 => content_widget.cursor_right(),
-                        3 => content_widget.cursor_right(),
-                        _ => unimplemented!(),
-                    }
+                    content_widget.set_highlight((4, fs_selection as u16), 20);
+
+                    // match hash_time % 5 {
+                    //     0 => content_widget.cursor_down(),
+                    //     1 => content_widget.cursor_up(),
+                    //     2 => content_widget.cursor_right(),
+                    //     3 => content_widget.cursor_right(),
+                    //     4 => {
+                    //         let pos = content_widget.pos().unwrap();
+                    //         content_widget.set_highlight(pos, 20);
+                    //         log::info!("highlight {} chars from: {:?}", 20, pos)
+                    //     }
+                    //     5 => {
+                    //         log::info!("clearing hightlighting");
+                    //         content_widget.clear_highlight()
+                    //     }
+                    //     _ => unimplemented!(),
+                    // }
 
                     frame.render_widget(title.clone(), windows.title);
 

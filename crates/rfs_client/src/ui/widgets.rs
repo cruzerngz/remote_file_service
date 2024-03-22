@@ -1,6 +1,7 @@
 //! Various UI widgets
 
 use std::{
+    borrow::Cow,
     collections::{HashMap, VecDeque},
     path::PathBuf,
 };
@@ -17,6 +18,8 @@ use rfs::{
     fs::{VirtDirEntry, VirtReadDir},
     ser_de::de,
 };
+
+use super::Ui;
 
 /// Default block used for UI elements
 pub const DEFAULT_BLOCK: Block = Block::new().borders(Borders::ALL);
@@ -69,7 +72,7 @@ pub struct ContentWindow {
     /// Multiple lines should be separated by '\n'.
     contents: Option<String>,
 
-    /// Cursor position in the file: (row, col)
+    /// Cursor position in the file: (x_col, y_row)
     ///
     /// This will highlight the current line and character in the file.
     cursor_pos: Option<(u16, u16)>,
@@ -78,7 +81,7 @@ pub struct ContentWindow {
     ///
     /// This item supercedes the cursor position.
     /// If this is Some(_), the cursor is not rendered.
-    highlight: Option<((u16, u16), (u16, u16))>,
+    highlight: Option<((u16, u16), u16)>,
 
     /// Notifications are displayed over the main contents like a pop-up.
     /// Errors take precedence over notifications.
@@ -271,6 +274,11 @@ fn centered_rect(x_percent: u16, y_percent: u16, rect: Rect) -> Rect {
     .split(popup_layout[1])[1]
 }
 
+/// Formats the line number with padding and an indicator.
+fn line_number(num: usize, padding: usize, indicator: char) -> String {
+    format!("{:<padding$}{} ", num, indicator, padding = padding)
+}
+
 impl Widget for ContentWindow {
     fn render(self, area: ratatui::prelude::Rect, buf: &mut ratatui::prelude::Buffer)
     where
@@ -279,11 +287,12 @@ impl Widget for ContentWindow {
         // clear the area first
         Clear.render(area, buf);
 
-        let main_para = match (self.contents, self.cursor_pos) {
+        let main_para = match (self.contents, self.cursor_pos, self.highlight) {
             // render a blank screen
-            (None, _) => Paragraph::default().block(DEFAULT_BLOCK),
+            (None, _, _) => Paragraph::default().block(DEFAULT_BLOCK),
+
             // render contents w/ line numbers
-            (Some(contents), None) => {
+            (Some(contents), None, None) => {
                 let num_line_digits = match contents.lines().count() {
                     0 => 1,
                     n => n.ilog10() + 1,
@@ -297,11 +306,7 @@ impl Widget for ContentWindow {
                         .map(|(line_num, line)| {
                             Line::from(vec![
                                 Span::styled(
-                                    format!(
-                                        "{:<padding$}: ",
-                                        line_num + 1,
-                                        padding = num_line_digits as usize
-                                    ),
+                                    line_number(line_num + 1, num_line_digits as usize, ':'),
                                     Style::new().bold(),
                                 ),
                                 Span::raw(line.to_owned()),
@@ -311,8 +316,17 @@ impl Widget for ContentWindow {
                 )
                 .block(DEFAULT_BLOCK)
             }
+            // highlight some text
+            (Some(contents), _, Some((h_start, h_len))) => {
+                let lines = contents.split('\n').collect::<Vec<_>>();
+
+                let res = highlight_text(contents, h_start, h_len);
+
+                Paragraph::new(res).block(DEFAULT_BLOCK)
+            }
+
             // render contents w/ scrolling
-            (Some(contents), Some((cursor_x, cursor_y))) => {
+            (Some(contents), Some((cursor_x, cursor_y)), None) => {
                 let num_line_digits = match contents.lines().count() {
                     0 => 1,
                     n => n.ilog10() + 1,
@@ -326,11 +340,7 @@ impl Widget for ContentWindow {
                         if cursor_y as usize == line_num {
                             Line::from({
                                 let mut spans = vec![Span::styled(
-                                    format!(
-                                        "{:<padding$}> ",
-                                        line_num + 1,
-                                        padding = num_line_digits as usize
-                                    ),
+                                    line_number(line_num + 1, num_line_digits as usize, '>'),
                                     Style::new().bold().white(),
                                 )];
                                 spans.extend(
@@ -351,11 +361,7 @@ impl Widget for ContentWindow {
                         } else {
                             Line::from(vec![
                                 Span::styled(
-                                    format!(
-                                        "{:<padding$}: ",
-                                        line_num + 1,
-                                        padding = num_line_digits as usize
-                                    ),
+                                    line_number(line_num + 1, num_line_digits as usize, ':'),
                                     Style::new().bold(),
                                 ),
                                 Span::raw(contents.to_owned()),
@@ -408,7 +414,7 @@ impl Widget for ContentWindow {
 
             Clear.render(err_rect, buf);
 
-            let popup = Paragraph::new(err_msg)
+            let popup = Paragraph::new(err_msg.bold().light_cyan().reversed())
                 .block(
                     DEFAULT_BLOCK
                         .borders(Borders::ALL)
@@ -555,9 +561,46 @@ impl ContentWindow {
         self.cursor_pos = pos;
     }
 
-    /// Highlight a section of text in the file
-    pub fn set_highlight(&mut self, highlight: Option<((u16, u16), (u16, u16))>) {
-        self.highlight = highlight;
+    /// Highlight a section of text in the file. The highlighted range is inclusive.
+    ///
+    /// This method performs some checks to ensure that the start and end positions are valid.
+    // pub fn set_highlight(&mut self, highlight: Option<((u16, u16), (u16, u16))>) {
+    //     self.highlight = match highlight {
+    //         // compare y and x values
+    //         Some((start, end)) => match (end.1.cmp(&start.1), end.0.cmp(&start.0)) {
+    //             // end row is less than start row, do not assign
+    //             (std::cmp::Ordering::Less, _) => None,
+
+    //             (
+    //                 std::cmp::Ordering::Equal,
+    //                 std::cmp::Ordering::Greater | std::cmp::Ordering::Equal,
+    //             ) => Some((start, end)),
+    //             // start and end in the same line, but end char is lte start char
+    //             (std::cmp::Ordering::Equal, _) => None,
+
+    //             (std::cmp::Ordering::Greater, _) => Some((start, end)),
+    //             // _ => todo!(),
+    //         },
+    //         None => None,
+    //     };
+    // }
+
+    /// Highlight a section of text given a starting point and a length.
+    ///
+    /// Depending on the contents of the file, the highlighted region can span multiple lines.
+    /// Whitespaces are ignored in the calculation of the length.
+    /// This can span multiple lines.
+    pub fn set_highlight(&mut self, pos: (u16, u16), len: u16) {
+        self.highlight = Some((pos, len));
+    }
+
+    /// Clears highlighting
+    pub fn clear_highlight(&mut self) {
+        self.highlight = None;
+    }
+
+    pub fn pos(&self) -> Option<(u16, u16)> {
+        self.cursor_pos
     }
 
     /// Get the lines and cursor position
@@ -749,13 +792,20 @@ impl ContentWindow {
 /// Highlight a section of the line.
 ///
 /// The end char index is exclusive.
-fn highlight_line_section(line: &str, start: u16, end: u16, style: Style) -> Vec<Span> {
+fn highlight_line_section(
+    line: String,
+    line_num: usize,
+    line_num_padding: usize,
+    start: u16,
+    end: u16,
+    style: Style,
+) -> Vec<Span<'static>> {
     let chars = line.chars().collect::<Vec<_>>();
 
     match (
         start < end,
         start < chars.len() as u16,
-        end < chars.len() as u16,
+        end <= chars.len() as u16,
     ) {
         // we are happy
         (true, true, true) => {
@@ -764,6 +814,10 @@ fn highlight_line_section(line: &str, start: u16, end: u16, style: Style) -> Vec
             let (to_highlight, right) = center.split_at((end - start) as usize);
 
             vec![
+                Span::styled(
+                    line_number(line_num, line_num_padding, ':'),
+                    Style::new().bold(),
+                ),
                 Span::raw(left.iter().collect::<String>()),
                 Span::styled(to_highlight.iter().collect::<String>(), style),
                 Span::raw(right.iter().collect::<String>()),
@@ -772,9 +826,125 @@ fn highlight_line_section(line: &str, start: u16, end: u16, style: Style) -> Vec
 
         // no highlighting
         _ => {
-            vec![Span::raw(line)]
+            vec![Span::raw(line.to_string())]
         }
     }
+}
+
+/// Highlight a block of text and add line numbers. Newlines are included in the count.
+fn highlight_text(text: String, pos: (u16, u16), mut len: u16) -> Vec<Line<'static>> {
+    let lines = text.split('\n').map(|l| l.to_string()).collect::<Vec<_>>();
+
+    // starting line num
+    let mut line_num = pos.1 as usize;
+    // starting char in a line
+    let mut char_num = pos.0 as usize;
+
+    let mut collected_lines = Vec::new();
+
+    let padding = match lines.len() {
+        0 => 1,
+        n => n.ilog10() + 1,
+    };
+
+    // push the initial unhighlighted lines
+    let first = lines
+        .iter()
+        .enumerate()
+        .take(line_num)
+        .map(|(line_num, l)| {
+            Line::from(vec![
+                Span::styled(
+                    line_number(line_num + 1, padding as usize, ':'),
+                    Style::new().bold(),
+                ),
+                Span::raw(l.to_string()),
+            ])
+        });
+    collected_lines.extend(first);
+
+    log::info!("skip highlighting of first {} lines", line_num);
+
+    while len != 0 {
+        let curr_line = match lines.get(line_num) {
+            Some(l) => l.to_owned(),
+            None => break,
+        };
+
+        // log::debug!("highlighting line {} with len {}", line_num, len);
+        let line_chars = curr_line.chars().collect::<Vec<_>>();
+
+        // how much of a line to highlight
+        // TODO: account for newlines
+        match (line_chars.len() - char_num).cmp(&(len as usize)) {
+            // highlight (what's left of) entire line
+            std::cmp::Ordering::Less | std::cmp::Ordering::Equal => {
+                log::info!(
+                    "highlighting line {} from char {} to end",
+                    line_num,
+                    char_num
+                );
+
+                let highlighted = highlight_line_section(
+                    curr_line,
+                    line_num + 1,
+                    padding as usize,
+                    char_num as u16,
+                    line_chars.len() as u16,
+                    Style::new().bold().light_cyan().reversed(),
+                );
+                collected_lines.push(Line::from(highlighted));
+
+                // move to the next line
+                line_num += 1;
+                char_num = 0;
+                len -= (line_chars.len() - char_num) as u16;
+            }
+
+            // highlight what's left
+            std::cmp::Ordering::Greater => {
+                log::info!(
+                    "highlighting line {} from char {} for {} chars",
+                    line_num,
+                    char_num,
+                    len
+                );
+                let highlighted = highlight_line_section(
+                    curr_line,
+                    line_num + 1,
+                    padding as usize,
+                    char_num as u16,
+                    char_num as u16 + len,
+                    Style::new().bold().light_cyan().reversed(),
+                );
+                collected_lines.push(Line::from(highlighted));
+
+                // finish up
+                line_num += 1;
+                len = 0;
+            }
+        }
+    }
+
+    // push the final unhighlighted lines
+    if line_num != lines.len() {
+        let last = lines
+            .iter()
+            .enumerate()
+            .skip(line_num)
+            .map(|(line_num, l)| {
+                Line::from(vec![
+                    Span::styled(
+                        line_number(line_num + 1, padding as usize, ':'),
+                        Style::new().bold(),
+                    ),
+                    Span::raw(l.to_string()),
+                ])
+            });
+        collected_lines.extend(last);
+    }
+
+    collected_lines
 }
 
 #[cfg(test)]
@@ -787,8 +957,36 @@ mod tests {
         let line = "hello world";
         let style = Style::new().reversed();
 
-        let spans = highlight_line_section(line, 2, 6, style);
+        let spans = highlight_line_section(line.to_owned(), 1, 2, 2, 6, style);
 
-        assert_eq!(spans.len(), 3);
+        println!("spans: {:#?}", spans);
+
+        assert_eq!(spans.len(), 4);
     }
+
+    // / Test the set_highlight() method
+    // #[test]
+    // fn test_set_highlight_input() {
+    //     let mut content = ContentWindow::new();
+
+    //     // start and end is the same point, valid
+    //     content.set_highlight(Some(((0, 0), (0, 0))));
+    //     assert_eq!(content.highlight, Some(((0, 0), (0, 0))));
+
+    //     // valid start, valid end
+    //     content.set_highlight(Some(((0, 0), (1, 1))));
+    //     assert_eq!(content.highlight, Some(((0, 0), (1, 1))));
+
+    //     // valid start, invalid end
+    //     content.set_highlight(Some(((1, 1), (0, 0))));
+    //     assert_eq!(content.highlight, None);
+
+    //     // start and end on the same line, valid
+    //     content.set_highlight(Some(((1, 1), (2, 1))));
+    //     assert_eq!(content.highlight, Some(((1, 1), (2, 1))));
+
+    //     // start and end on the same line, invalid
+    //     content.set_highlight(Some(((1, 1), (0, 1))));
+    //     assert_eq!(content.highlight, None);
+    // }
 }
