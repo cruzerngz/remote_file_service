@@ -37,6 +37,7 @@ impl App {
 
         tui.start();
 
+        // tui.draw(f);
         while let Some(event) = tui.next().await {
             match event {
                 super::tui::AppEvent::Init => todo!(),
@@ -44,14 +45,14 @@ impl App {
                 super::tui::AppEvent::Error => todo!(),
                 super::tui::AppEvent::Closed => todo!(),
                 super::tui::AppEvent::Tick => todo!(),
-                super::tui::AppEvent::Render => todo!(),
+                super::tui::AppEvent::Render | super::tui::AppEvent::Resize(_, _) => {
+                    tui.draw_to_screen().await?
+                }
                 super::tui::AppEvent::FocusGained => todo!(),
                 super::tui::AppEvent::FocusLost => todo!(),
                 super::tui::AppEvent::Paste(_) => todo!(),
                 super::tui::AppEvent::Key(_) => todo!(),
                 super::tui::AppEvent::Mouse(_) => todo!(),
-                super::tui::AppEvent::Resize(_, _) => todo!(),
-                // _ => todo!(),
             }
         }
 

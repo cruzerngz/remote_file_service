@@ -16,7 +16,14 @@ use rfs::{
     ser_de::de,
 };
 
-use crate::ui::tui::DEFAULT_BLOCK;
+/// Default block used for UI elements
+pub const DEFAULT_BLOCK: Block = Block::new().borders(Borders::ALL);
+
+/// Title bar
+#[derive(Clone, Debug)]
+pub struct TitleBar {
+    title: Option<String>,
+}
 
 /// Filesystem tree widgets
 #[derive(Clone, Debug)]
@@ -45,6 +52,45 @@ pub struct StderrLogs {
 pub struct AvailableCommands {
     /// A command key and it's description
     commands: HashMap<String, String>,
+}
+
+/// This widget is used to display file contents, as well as any error messages.
+#[derive(Clone, Debug)]
+pub struct ContentWindow {
+    /// File contents to display.
+    ///
+    /// Multiple lines should be separated by '\n'.
+    contents: Option<String>,
+
+    /// Cursor position in the file: (row, col)
+    ///
+    /// This will highlight the current line and character in the file.
+    cursor_pos: Option<(u16, u16)>,
+
+    /// Notifications are displayed over the main contents like a pop-up.
+    /// Errors take precedence over notifications.
+    notification: Option<String>,
+
+    /// Error messages are displayed over the main contents like a pop-up.
+    error_message: Option<String>,
+}
+
+impl Widget for TitleBar {
+    fn render(self, area: ratatui::prelude::Rect, buf: &mut ratatui::prelude::Buffer)
+    where
+        Self: Sized,
+    {
+        let block = match self.title {
+            Some(t) => DEFAULT_BLOCK
+                .borders(Borders::TOP)
+                .title(t)
+                .title_alignment(ratatui::layout::Alignment::Center)
+                .style(Style::new().bold()),
+            None => DEFAULT_BLOCK.borders(Borders::TOP),
+        };
+
+        block.render(area, buf)
+    }
 }
 
 impl Widget for FsTree {
@@ -196,6 +242,43 @@ impl Widget for AvailableCommands {
     }
 }
 
+impl Widget for ContentWindow {
+    fn render(self, area: ratatui::prelude::Rect, buf: &mut ratatui::prelude::Buffer)
+    where
+        Self: Sized,
+    {
+        match (self.contents, self.cursor_pos) {
+            // render a blank screen
+            (None, _) => todo!(),
+            // render contents
+            (Some(_), None) => todo!(),
+            // render contents w/ scrolling
+            (Some(_), Some(_)) => todo!(),
+        }
+
+        // notifications and error messages are overlaid on top of the contents
+        // notifications are displayed on the top border???
+        match (self.error_message, self.notification) {
+            (Some(err_msg), _) => todo!(),
+            (None, Some(notif)) => todo!(),
+            _ => (),
+        }
+
+        todo!()
+    }
+}
+
+impl TitleBar {
+    pub fn new() -> Self {
+        Self { title: None }
+    }
+
+    /// Set the title of the title bar
+    pub fn set_title<T: ToString>(&mut self, title: Option<T>) {
+        self.title = title.and_then(|t| Some(t.to_string()));
+    }
+}
+
 impl FsTree {
     pub fn new() -> Self {
         Self {
@@ -286,5 +369,16 @@ impl AvailableCommands {
     /// Clears the current list of commands
     pub fn clear(&mut self) {
         self.commands.clear();
+    }
+}
+
+impl ContentWindow {
+    pub fn new() -> Self {
+        Self {
+            contents: None,
+            cursor_pos: None,
+            notification: None,
+            error_message: None,
+        }
     }
 }

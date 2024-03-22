@@ -1,7 +1,8 @@
 //! Tui module. Handles rendering/// Terminal ui struct.
 
 use std::{
-    io,
+    borrow::Borrow,
+    io::{self, Read},
     ops::{Deref, DerefMut},
     time::Duration,
 };
@@ -19,7 +20,8 @@ use futures::{FutureExt, StreamExt};
 use ratatui::{
     backend::{Backend, CrosstermBackend},
     layout::{Constraint, Layout, Rect},
-    widgets::{Block, Borders},
+    style::{Style, Stylize},
+    widgets::{block::title, Block, Borders},
     Frame, Terminal,
 };
 use tokio::{
@@ -27,13 +29,14 @@ use tokio::{
     task::JoinHandle,
 };
 use tokio_util::sync::CancellationToken;
+
+use super::widgets::{
+    AvailableCommands, ContentWindow, FsTree, StderrLogs, TitleBar, DEFAULT_BLOCK,
+};
 /// This is instantiated and run inside app::run().
 
 /// This is the main terminal type used inside main
 pub type Ui = Terminal<CrosstermBackend<std::io::Stdout>>;
-
-/// Default block for the UI
-pub const DEFAULT_BLOCK: Block = Block::new().borders(Borders::ALL);
 
 pub struct Tui {
     pub terminal: ratatui::Terminal<CrosstermBackend<std::io::Stdout>>,
@@ -45,11 +48,24 @@ pub struct Tui {
     pub tick_rate: f64,
     pub mouse: bool,
     pub paste: bool,
+
+    // stderr pipe
+    pub stderr_pipe: shh::ShhStderr,
+
+    // widgets
+    pub title_widget: TitleBar,
+    pub fs_widget: FsTree,
+    pub logs_widget: StderrLogs,
+    pub commands_widget: AvailableCommands,
+    pub content_widget: ContentWindow,
 }
 
 /// Various rectangles rendered on the screen
 #[derive(Debug)]
 pub struct UIWindows {
+    /// Application title
+    pub title: Rect,
+
     /// Window for logs
     pub logs: Rect,
 
@@ -99,9 +115,10 @@ impl Tui {
         let terminal = ratatui::Terminal::new(CrosstermBackend::new(std::io::stdout()))?;
         let (event_tx, event_rx) = mpsc::unbounded_channel();
         let cancellation_token = CancellationToken::new();
-        let task = tokio::spawn(async {});
+        let task = tokio::spawn(async {}); // placeholder task
         let mouse = false;
         let paste = false;
+
         Ok(Self {
             terminal,
             task,
@@ -112,6 +129,14 @@ impl Tui {
             tick_rate,
             mouse,
             paste,
+
+            stderr_pipe: shh::stderr()?,
+
+            title_widget: TitleBar::new(),
+            fs_widget: FsTree::new(),
+            logs_widget: StderrLogs::new(),
+            commands_widget: AvailableCommands::new(),
+            content_widget: ContentWindow::new(),
         })
     }
 
@@ -135,6 +160,7 @@ impl Tui {
         self
     }
 
+    /// Start key events capture task
     pub fn start(&mut self) {
         let tick_delay = std::time::Duration::from_secs_f64(1.0 / self.tick_rate);
         let render_delay = std::time::Duration::from_secs_f64(1.0 / self.frame_rate);
@@ -142,6 +168,8 @@ impl Tui {
         self.cancellation_token = CancellationToken::new();
         let _cancellation_token = self.cancellation_token.clone();
         let _event_tx = self.event_tx.clone();
+
+        // spawn the keyboard events task
         self.task = tokio::spawn(async move {
             let mut reader = crossterm::event::EventStream::new();
             let mut tick_interval = tokio::time::interval(tick_delay);
@@ -152,47 +180,47 @@ impl Tui {
                 let render_delay = render_interval.tick();
                 let crossterm_event = reader.next().fuse();
                 tokio::select! {
-                  _ = _cancellation_token.cancelled() => {
-                    break;
-                  }
-                  maybe_event = crossterm_event => {
-                    match maybe_event {
-                      Some(Ok(evt)) => {
-                        match evt {
-                          Event::Key(key) => {
-                            if key.kind == KeyEventKind::Press {
-                              _event_tx.send(AppEvent::Key(key)).unwrap();
-                            }
-                          },
-                          Event::Mouse(mouse) => {
-                            _event_tx.send(AppEvent::Mouse(mouse)).unwrap();
-                          },
-                          Event::Resize(x, y) => {
-                            _event_tx.send(AppEvent::Resize(x, y)).unwrap();
-                          },
-                          Event::FocusLost => {
-                            _event_tx.send(AppEvent::FocusLost).unwrap();
-                          },
-                          Event::FocusGained => {
-                            _event_tx.send(AppEvent::FocusGained).unwrap();
-                          },
-                          Event::Paste(s) => {
-                            _event_tx.send(AppEvent::Paste(s)).unwrap();
-                          },
-                        }
-                      }
-                      Some(Err(_)) => {
-                        _event_tx.send(AppEvent::Error).unwrap();
-                      }
-                      None => {},
+                    _ = _cancellation_token.cancelled() => {
+                        break;
                     }
-                  },
-                  _ = tick_delay => {
-                      _event_tx.send(AppEvent::Tick).unwrap();
-                  },
-                  _ = render_delay => {
-                      _event_tx.send(AppEvent::Render).unwrap();
-                  },
+                    maybe_event = crossterm_event => {
+                        match maybe_event {
+                            Some(Ok(evt)) => {
+                                match evt {
+                                    Event::Key(key) => {
+                                        if key.kind == KeyEventKind::Press {
+                                        _event_tx.send(AppEvent::Key(key)).unwrap();
+                                        }
+                                    },
+                                    Event::Mouse(mouse) => {
+                                        _event_tx.send(AppEvent::Mouse(mouse)).unwrap();
+                                    },
+                                    Event::Resize(x, y) => {
+                                        _event_tx.send(AppEvent::Resize(x, y)).unwrap();
+                                    },
+                                    Event::FocusLost => {
+                                        _event_tx.send(AppEvent::FocusLost).unwrap();
+                                    },
+                                    Event::FocusGained => {
+                                        _event_tx.send(AppEvent::FocusGained).unwrap();
+                                    },
+                                    Event::Paste(s) => {
+                                        _event_tx.send(AppEvent::Paste(s)).unwrap();
+                                    },
+                                }
+                            }
+                            Some(Err(_)) => {
+                                _event_tx.send(AppEvent::Error).unwrap();
+                            }
+                            None => {},
+                        }
+                    },
+                    _ = tick_delay => {
+                        _event_tx.send(AppEvent::Tick).unwrap();
+                    },
+                    _ = render_delay => {
+                        _event_tx.send(AppEvent::Render).unwrap();
+                    },
                 }
             }
         });
@@ -261,6 +289,33 @@ impl Tui {
     pub async fn next(&mut self) -> Option<AppEvent> {
         self.event_rx.recv().await
     }
+
+    /// Draw the UI and it's current state to the screen.
+    /// This method should be called inside [`super::App`]
+    pub async fn draw_to_screen(&mut self) -> io::Result<()> {
+        // update piped stderr logs
+        // stderr logs are automatically updated every draw call
+        let mut new_logs = String::new();
+        self.stderr_pipe.read_to_string(&mut new_logs)?;
+        self.logs_widget.push(new_logs);
+
+        let title_widget = self.title_widget.clone();
+        let fs_widget = self.fs_widget.clone();
+        let commands_widget = self.commands_widget.clone();
+        let logs_widget = self.logs_widget.clone();
+
+        self.draw(|f| {
+            let windows = UIWindows::from(f.borrow());
+
+            f.render_widget(title_widget, windows.title);
+            f.render_widget(fs_widget, windows.filesystem);
+            f.render_widget(commands_widget, windows.commands);
+            f.render_widget(logs_widget, windows.logs);
+            // we are left with the content window, which is not implemented yet
+        })?;
+
+        Ok(())
+    }
 }
 
 impl Deref for Tui {
@@ -289,14 +344,18 @@ impl From<&Frame<'_>> for UIWindows {
         // top layout for main UI, bottom layout for redirected stderr
         let main_layout = Layout::default()
             .direction(ratatui::layout::Direction::Vertical)
-            .constraints(vec![Constraint::Percentage(80), Constraint::Max(20)])
+            .constraints(vec![
+                Constraint::Max(1),
+                Constraint::Percentage(80),
+                Constraint::Max(20),
+            ])
             .split(value.size());
 
         // left layout for filesystem, right layout for content
         let filesystem_layout = Layout::default()
             .direction(ratatui::layout::Direction::Horizontal)
             .constraints(vec![Constraint::Max(100), Constraint::Percentage(75)])
-            .split(main_layout[0]);
+            .split(main_layout[1]);
 
         // top layout for content, bottom for available commands
         let content_layout = Layout::default()
@@ -305,7 +364,8 @@ impl From<&Frame<'_>> for UIWindows {
             .split(filesystem_layout[1]);
 
         Self {
-            logs: main_layout[1],
+            title: main_layout[0],
+            logs: main_layout[2],
             filesystem: filesystem_layout[0],
             content: content_layout[0],
             commands: content_layout[1],
@@ -340,6 +400,12 @@ mod tests {
         init_terminal()?;
 
         let mut terminal = Terminal::new(CrosstermBackend::new(std::io::stdout()))?;
+
+        let title = {
+            let mut t = TitleBar::new();
+            t.set_title(Some("tui test title"));
+            t
+        };
 
         let mut logs = StderrLogs::new();
 
@@ -401,10 +467,7 @@ mod tests {
                 terminal.draw(|frame| {
                     let windows = UIWindows::from(frame.borrow());
 
-                    frame.render_widget(
-                        Paragraph::default().block(Block::new().borders(Borders::ALL)),
-                        frame.size(),
-                    );
+                    frame.render_widget(title.clone(), windows.title);
 
                     frame.render_widget(
                         Paragraph::new(format!(
