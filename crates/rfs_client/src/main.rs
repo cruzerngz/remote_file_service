@@ -2,22 +2,10 @@ mod args;
 mod test;
 mod ui;
 
-use std::{
-    io::{self, Write},
-    net::SocketAddrV4,
-    sync::Arc,
-};
+use std::{io, net::SocketAddrV4, sync::Arc};
 
 use args::ClientArgs;
 use clap::Parser;
-// use clap::Parser;
-use crossterm::event::{self, KeyCode, KeyEventKind};
-use ratatui::{
-    backend::CrosstermBackend,
-    style::Stylize,
-    widgets::{self, canvas::Context},
-    Terminal,
-};
 use rfs::middleware::*;
 
 #[tokio::main]
@@ -32,7 +20,7 @@ async fn main() -> io::Result<()> {
         .init();
 
     let args = ClientArgs::parse();
-    let mut manager = match (args.invocation_semantics, args.simulate_ommisions) {
+    let manager = match (args.invocation_semantics, args.simulate_ommisions) {
         (args::InvocationSemantics::Maybe, true) => {
             ContextManager::new(
                 args.listen_address,
@@ -107,26 +95,4 @@ async fn main() -> io::Result<()> {
     }
 
     return Ok(());
-}
-
-#[allow(unused)]
-async fn render_loop<W: Write>(mut term: Terminal<CrosstermBackend<W>>) -> io::Result<()> {
-    loop {
-        term.draw(|frame| {
-            let area = frame.size();
-
-            frame.render_widget(
-                widgets::Paragraph::new("Hello world from ratatui!").white(),
-                area,
-            )
-        })?;
-
-        if event::poll(std::time::Duration::from_millis(16))? {
-            if let event::Event::Key(k) = event::read()? {
-                if k.kind == KeyEventKind::Press && k.code == KeyCode::Char('q') {
-                    break Ok(());
-                }
-            }
-        }
-    }
 }

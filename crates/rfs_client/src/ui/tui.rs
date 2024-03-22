@@ -375,7 +375,11 @@ impl From<&Frame<'_>> for UIWindows {
 
 #[cfg(test)]
 mod tests {
-    use std::{borrow::Borrow, io::Read};
+    use std::{
+        borrow::Borrow,
+        hash::{DefaultHasher, Hash, Hasher},
+        io::Read,
+    };
 
     use ratatui::{
         style::Stylize,
@@ -445,6 +449,11 @@ mod tests {
         let mut commands = AvailableCommands::new();
         commands.add([('q', "quit"), ('h', "help")]);
 
+        let mut content_widget = ContentWindow::new();
+        content_widget.set_cursor_pos(Some((0, 0)));
+        content_widget.set_notification(Some("hello world from the notifications!"));
+        content_widget.set_error_message(Some("this is an error message AHHHHH"));
+
         loop {
             // wait for a crossterm keypress
             if event::poll(std::time::Duration::from_millis(16))? {
@@ -467,17 +476,39 @@ mod tests {
                 terminal.draw(|frame| {
                     let windows = UIWindows::from(frame.borrow());
 
+                    content_widget.set_contents(Some(format!(
+                        "main window: {:#?}, ui windows: {:#?}",
+                        frame.size(),
+                        windows
+                    )));
+
+                    let hash_time = {
+                        let mut hasher = DefaultHasher::new();
+                        std::time::Instant::now().hash(&mut hasher);
+                        hasher.finish()
+                    };
+
+                    match hash_time % 3 {
+                        0 => content_widget.cursor_down(),
+                        1 => content_widget.cursor_up(),
+                        2 => content_widget.cursor_right(),
+                        3 => content_widget.cursor_right(),
+                        _ => unimplemented!(),
+                    }
+
                     frame.render_widget(title.clone(), windows.title);
 
-                    frame.render_widget(
-                        Paragraph::new(format!(
-                            "main window: {:#?}, ui windows: {:#?}",
-                            frame.size(),
-                            windows
-                        ))
-                        .block(Block::new().borders(Borders::ALL)),
-                        windows.content,
-                    );
+                    // frame.render_widget(
+                    //     Paragraph::new(format!(
+                    //         "main window: {:#?}, ui windows: {:#?}",
+                    //         frame.size(),
+                    //         windows
+                    //     ))
+                    //     .block(Block::new().borders(Borders::ALL)),
+                    //     windows.content,
+                    // );
+
+                    frame.render_widget(content_widget.clone(), windows.content);
 
                     frame.render_widget(fs_tree.clone(), windows.filesystem);
 
