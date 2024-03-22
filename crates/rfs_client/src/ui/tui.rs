@@ -250,8 +250,6 @@ impl Tui {
 
     pub fn suspend(&mut self) -> io::Result<()> {
         self.exit()?;
-        #[cfg(not(windows))]
-        // signal_hook::low_level::raise(signal_hook::consts::signal::SIGTSTP)?;
         Ok(())
     }
 
@@ -325,11 +323,11 @@ mod tests {
     };
     use rfs::fs::{VirtDirEntry, VirtReadDir};
 
-    use crate::ui::widgets::{FsTree, StderrLogs};
+    use crate::ui::widgets::{AvailableCommands, FsTree, StderrLogs};
 
-    // use ratatui::Terminal;
     use super::*;
 
+    /// Check out the look of the UI and box sizes
     // #[ignore = "this test is for manual testing only"]
     #[test]
     fn test_render_boxes() -> io::Result<()> {
@@ -377,6 +375,10 @@ mod tests {
 
         let mut fs_selection = 0;
 
+        // manually seeding some commands
+        let mut commands = AvailableCommands::new();
+        commands.add([('q', "quit"), ('h', "help")]);
+
         loop {
             // wait for a crossterm keypress
             if event::poll(std::time::Duration::from_millis(16))? {
@@ -416,15 +418,7 @@ mod tests {
 
                     frame.render_widget(fs_tree.clone(), windows.filesystem);
 
-                    frame.render_widget(
-                        Paragraph::new("This is the commands box").block(
-                            Block::new().borders(Borders::ALL).title(
-                                Title::from("commands".gray().bold())
-                                    .alignment(ratatui::layout::Alignment::Center),
-                            ),
-                        ),
-                        windows.commands,
-                    );
+                    frame.render_widget(commands.clone(), windows.commands);
 
                     frame.render_widget(logs.clone(), windows.logs)
                 });

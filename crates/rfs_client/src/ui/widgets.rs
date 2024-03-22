@@ -1,7 +1,11 @@
 //! Various UI widgets
 
-use std::{collections::VecDeque, path::PathBuf};
+use std::{
+    collections::{HashMap, VecDeque},
+    path::PathBuf,
+};
 
+use crossterm::event::KeyCode;
 use ratatui::{
     style::{Style, Stylize},
     text::{Line, Span},
@@ -34,6 +38,13 @@ pub struct FsTree {
 #[derive(Clone, Debug)]
 pub struct StderrLogs {
     pub logs: VecDeque<String>,
+}
+
+/// Widget that displays available commands.
+#[derive(Clone, Debug)]
+pub struct AvailableCommands {
+    /// A command key and it's description
+    commands: HashMap<String, String>,
 }
 
 impl Widget for FsTree {
@@ -152,6 +163,39 @@ impl Widget for StderrLogs {
     }
 }
 
+impl Widget for AvailableCommands {
+    fn render(self, area: ratatui::prelude::Rect, buf: &mut ratatui::prelude::Buffer)
+    where
+        Self: Sized,
+    {
+        let mut sorted = self.commands.iter().collect::<Vec<_>>();
+        sorted.sort();
+
+        let instrs = sorted
+            .into_iter()
+            .map(|(key, desc)| {
+                vec![
+                    Span::styled(key, Style::new().bold().green()),
+                    Span::raw(": "),
+                    Span::styled(desc, Style::new().underlined()),
+                    Span::raw("  "),
+                ]
+            })
+            .collect::<Vec<_>>()
+            .concat();
+
+        let line = Line::from(instrs);
+
+        let para = Paragraph::new(line)
+            .block(DEFAULT_BLOCK.title(
+                Title::from("commands".bold().gray()).alignment(ratatui::layout::Alignment::Center),
+            ))
+            .wrap(Wrap { trim: false });
+
+        para.render(area, buf)
+    }
+}
+
 impl FsTree {
     pub fn new() -> Self {
         Self {
@@ -220,5 +264,27 @@ impl StderrLogs {
         }
 
         self.logs.extend(lines);
+    }
+}
+
+impl AvailableCommands {
+    pub fn new() -> Self {
+        Self {
+            commands: Default::default(),
+        }
+    }
+
+    /// Add a bunch of commands to the list
+    pub fn add<C: IntoIterator<Item = (K, V)>, K: ToString, V: ToString>(&mut self, commands: C) {
+        let modified = commands
+            .into_iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()));
+
+        self.commands.extend(modified)
+    }
+
+    /// Clears the current list of commands
+    pub fn clear(&mut self) {
+        self.commands.clear();
     }
 }
