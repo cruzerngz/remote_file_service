@@ -457,10 +457,11 @@ mod tests {
         content_widget.set_cursor_pos(Some((0, 0)));
         content_widget.set_notification(Some("hello world from the notifications!"));
         content_widget.set_error_message(Some("this is an error message AHHHHH"));
+        let mut content_highlight_offset = 0;
 
         loop {
             // wait for a crossterm keypress
-            if event::poll(std::time::Duration::from_millis(1000))? {
+            if event::poll(std::time::Duration::from_millis(100))? {
                 if let Event::Key(key) = event::read()? {
                     break;
                 }
@@ -480,11 +481,13 @@ mod tests {
                 terminal.draw(|frame| {
                     let windows = UIWindows::from(frame.borrow());
 
-                    content_widget.set_contents(Some(format!(
+                    let content = format!(
                         "main window: {:#?}, ui windows: {:#?}",
                         frame.size(),
                         windows
-                    )));
+                    );
+                    let num_content_chars = content.chars().count();
+                    content_widget.set_contents(Some(content));
 
                     let hash_time = {
                         let mut hasher = DefaultHasher::new();
@@ -494,24 +497,32 @@ mod tests {
 
                     // content_widget.cursor_down();
 
-                    content_widget.set_highlight((4, fs_selection as u16), 20);
+                    if content_highlight_offset < num_content_chars - 1 {
+                        content_highlight_offset += 1;
+                    } else {
+                        content_highlight_offset = 0;
+                    }
 
-                    // match hash_time % 5 {
-                    //     0 => content_widget.cursor_down(),
-                    //     1 => content_widget.cursor_up(),
-                    //     2 => content_widget.cursor_right(),
-                    //     3 => content_widget.cursor_right(),
-                    //     4 => {
-                    //         let pos = content_widget.pos().unwrap();
-                    //         content_widget.set_highlight(pos, 20);
-                    //         log::info!("highlight {} chars from: {:?}", 20, pos)
-                    //     }
-                    //     5 => {
-                    //         log::info!("clearing hightlighting");
-                    //         content_widget.clear_highlight()
-                    //     }
-                    //     _ => unimplemented!(),
-                    // }
+                    content_widget.set_highlight(content_highlight_offset, 20);
+                    // content_widget.clear_highlight();
+
+                    match hash_time % 4 {
+                        0 => content_widget.cursor_down(),
+                        1 => content_widget.cursor_up(),
+                        2 => content_widget.cursor_right(),
+                        3 => content_widget.cursor_left(),
+                        // 4 => content_widget.clear_highlight(),
+                        // 4 => {
+                        //     let pos = content_widget.pos().unwrap();
+                        //     content_widget.set_highlight(pos, 20);
+                        //     log::info!("highlight {} chars from: {:?}", 20, pos)
+                        // }
+                        // 5 => {
+                        //     log::info!("clearing hightlighting");
+                        //     content_widget.clear_highlight()
+                        // }
+                        _ => unimplemented!(),
+                    }
 
                     frame.render_widget(title.clone(), windows.title);
 
