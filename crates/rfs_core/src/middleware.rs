@@ -25,6 +25,7 @@ pub use context_manager::*;
 pub use dispatch::*;
 pub use handshake_proto::HandshakeProto;
 
+use crate::ser_de::byte_packer::{pack_bytes, unpack_bytes};
 // define the serde method here once for use by submodules
 use crate::ser_de::deserialize_packed as deserialize_primary;
 use crate::ser_de::serialize_packed as serialize_primary;
@@ -536,7 +537,8 @@ impl TransmissionProtocol for DefaultProto {
 // where
     //     A: ToSocketAddrs + std::marker::Send + std::marker::Sync,
     {
-        sock.send_to(payload, target).await
+        let packed = pack_bytes(payload);
+        sock.send_to(&packed, target).await
     }
 
     async fn recv_bytes(
@@ -550,8 +552,9 @@ impl TransmissionProtocol for DefaultProto {
         let (size, addr) = sock.recv_from(&mut buf).await?;
 
         let addr = sockaddr_to_v4(addr)?;
+        let unpacked = unpack_bytes(&buf[..size]);
 
-        Ok((addr, buf[..size].to_vec()))
+        Ok((addr, unpacked))
     }
 }
 

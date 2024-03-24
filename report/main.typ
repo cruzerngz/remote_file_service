@@ -167,8 +167,11 @@ pub enum SimpleOpsSayHello {
 }
 ```
 
+#pagebreak()
 === Marshalling/Unmarshalling
-Using the `serde` library as a backend, a custom marshalling and unmarshalling format is defined
+The terms "marshalling" and "unmarshalling" will be used interchangeably with "serialization" and "deserialization" throughout this report.
+
+Using the `serde` library to provide helper macros, a custom data format is defined
 with the ability to marshall and unmarshall an arbitrary data type.
 This brings a lot of flexibility when defining custom payloads.
 ```rs
@@ -189,55 +192,67 @@ enum CustomPayload {
 }
 ```
 
-The following table describes the marshalling formats for common data types in rust.
-Byte prefixes and various delimiters are used to assert the type of the data during unmarshalling.
+==== Design
+There are some design considerations made for this serialization format.
 
-Depending on the data type, other bytes are used to encode and assert the boundaries of the data.
-These bytes are referenced by their equivalent ASCII character.
+The data format is a binary (byte-level) format, with no guarantee that the data is human-readable.
+All multi-byte primitives such as numerics and floats are serialized in big-endian, or Network Byte Order (NBO).
+The atomic unit of data used during the marshalling process is a byte.
 
-#table(
-  columns: (auto, auto, auto),
-    [*data type*], [*byte prefix*], [*format*],
-    [`boolean`], [`c`], [
-        `true` $=>$ `u8::MAX`, `false` $=>$ `u8::MIN`
+The data format is partially self-describing.
+As implementing a self-describing format is not part of the requirements of the project, some data types share the same serialization method.
 
-        *Example:* `c[0b1111_1111]`, `c[0b0000_0000]`
-    ],
-    [`numeric`], [`n`], [Cast to `u64` and serialized in 8 bytes, big endian],
-    [`float`], [`f`], [Cast to `f64` and serialized in 8 bytes, big endian],
-    [`array`], [`s`], [
-        Serialized as a length-prefixed array.
-        Array bounds are delimited by square brackets (`[`, `]`).
+Various byte prefixes and delimiters are used to assert the type of the data during unmarshalling.
+These bytes are referenced by their equivalent ASCII character. @serde_format_table describes the format in detail.
 
-    *Example:* `s[[ARR_LENGTH][ITEM1][ITEM2][...]]`],
-    [`tuple`], [`t`], [Same as `array`, bounds are delimited by parantheses (`(`, `)`)],
-    [`bytes`], [`b`], [
-        Same as `array`
-    ],
-    [`string`], [`s`], [Same as `bytes`],
+#figure(
+    caption: [Marshalling format for common rust data types],
+    table(
+        align: left,
+        columns: (auto, auto, auto),
+            [*data type*], [*byte prefix*], [*format*],
+            [`boolean`], [`c`], [
+                `true` $=>$ `u8::MAX`, `false` $=>$ `u8::MIN`
 
-    [`struct`], [`m`], [
-        Field-values are serialized as key-value pairs. Field names are serialized as strings. Field-value pairs are enclosed in angle brackets (`<`, `>`) and delimited by a hyphen (`-`).
-        Boundaries are delimited by curly brackets (`{`, `}`).
+                *Example:* `c[0b1111_1111]`, `c[0b0000_0000]`
+            ],
+            [`char`], [none], [Serialized as UTF-8 (4 bytes), NBO],
+            [`numeric`], [`n`], [Cast to `u64` and serialized in 8 bytes, NBO],
+            [`float`], [`f`], [Cast to `f64` and serialized in 8 bytes, NBO],
+            [`array`], [`s`], [
+                Serialized as a length-prefixed array.
+                Array bounds are delimited by square brackets (`[`, `]`).
 
-        *Example:* `m{<[FIELD_NAME]-[VALUE]><[FIELD_NAME_2]-[VALUE_2]>}`],
+            *Example:* `s[[ARR_LENGTH][ITEM1][ITEM2][...]]`],
+            [`tuple`], [`t`], [Same as `array`, bounds are delimited by parantheses (`(`, `)`)],
+            [`bytes`], [`b`], [
+                Same as `array`
+            ],
+            [`string`], [`s`], [Same as `bytes`],
 
-    [`map`], [`m`], [same as `struct`],
+            [`struct`], [`m`], [
+                Field-values are serialized as key-value pairs. Field names are serialized as strings. Field-value pairs are enclosed in angle brackets (`<`, `>`) and delimited by a hyphen (`-`).
+                Boundaries are delimited by curly brackets (`{`, `}`).
 
-    [`enum`], [`e`], [
-        Variant names are prefixed before the inner value as strings.
-        The inner value is serialized according to it's respective data type.
+                *Example:* `m{<[FIELD_NAME]-[VALUE]><[FIELD_NAME_2]-[VALUE_2]>}`],
 
-        *Example:* `e[VARIANT_NAME][VARIANT_VALUE]`],
+            [`map`], [`m`], [same as `struct`],
 
-    [`option`], [`o`], [
-        `Some<T>` is encoded as `u8::MAX`, while `None` is encoded as `u8::MIN`.
-        The inner value is serialized according to it's respective data type.
+            [`enum`], [`e`], [
+                Variant names are prefixed before the inner value as strings.
+                The inner value is serialized according to it's respective data type.
 
-        *Example:* `o[0b1111_1111][OPTION_VALUE]`, `o[0b0000_0000]`],
+                *Example:* `e[VARIANT_NAME][VARIANT_VALUE]`],
 
-    // idk what else to add
-)
+            [`option`], [`o`], [
+                `Some<T>` is encoded as `u8::MAX`, while `None` is encoded as `u8::MIN`.
+                The inner value is serialized according to it's respective data type.
+
+                *Example:* `o[0b1111_1111][OPTION_VALUE]`, `o[0b0000_0000]`],
+
+            // idk what else to add
+    )
+) <serde_format_table>
 
 #pagebreak()
 
@@ -342,8 +357,6 @@ def handle_payload(self, payload: bytes) -> bytes:
 // when using HandshakeProtocol
 === Transmission protocol <transmission_protocol>
 The dispatcher, context manager and remote objects require a transmission protocol to send and receive messages.
-Protocols with various levels of fault tolerance can be implemented.
-
 ```rs
 pub struct Dispatcher<H, T>
 where
@@ -375,36 +388,27 @@ pub trait TransmissionProtocol {
 }
 ```
 
-A number of transmission protocols are implemented, with each protocol providing more features over the previous:
-- `DefaultProto`: Basic UDP transmission
-- `RequestAckProto`: A protocol that requires the remote to acknowledge the receipt of a packet
-- `HandshakeProto`: A fault-tolerant protocol over UDP that supports the transmission of arbitrarily large payloads
-
-These protocols also have faulty implementations. Faulty protocols omit the transmission of packets based on a set probability to simulate dropped UDP packets.
-- `DefaultFaultyProto`
-- `RequestAckFaultyProto`
-- `HandshakeFaultyProto`
-
-// not sure what this is here for
-== Fault tolerance
-
-
-== Invocation semantics
 Each of the protocols described in @transmission_protocol along with the dispatcher in @dispatch fulfill the requirements for various invocation semantics.
+The following table describes the invocation semantics fulfilled by each protocol.
+The faulty protocols omit the transmission of packets based on a set probability to simulate network errors.
 
-#table(
-    columns: (auto, auto, auto, auto),
-        [*Invocation semantics*], [*protocol*], [*faulty protocol*], [*explanation*],
-        [Maybe], [`DefaultProto`], [`DefaultFaultyProto`], [
-            Basic UDP messaging does not guarantee the receipt of a packet.
-        ],
-        [At-least-once], [`RequestAckProto`], [`RequestAckFaultyProto`], [
-            This implementation includes timeouts and retries to ensure the remote receives the packet at least once.
-        ],
-        [At-most-once], [`HandshakeProto`], [`HandshakeFaultyProto`], [
-            To completely fulfill at-most-one semantics, the dispatcher is configured to filter duplicate requests
-        ],
-)
+#figure(
+    caption: [Invocation semantics fulfilled by each protocol],
+    table(
+        align: left,
+        columns: (auto, auto, auto, auto),
+            [*Semantics*], [*protocol*], [*faulty protocol*], [*explanation*],
+            [Maybe], [`DefaultProto`], [`DefaultFaultyProto`], [
+                Basic UDP messaging does not guarantee the receipt of a packet. Performs simple data compression and decompression.
+            ],
+            [At-least-once], [`RequestAckProto`], [`RequestAckFaultyProto`], [
+                This implementation includes timeouts and retries to ensure the remote receives the packet at least once.
+            ],
+            [At-most-once], [`HandshakeProto`], [`HandshakeFaultyProto`], [
+                To completely fulfill at-most-once semantics, the dispatcher is also configured to filter duplicate requests
+            ],
+    )
+) <protocol_table>
 
 // === Maybe invocation semantics
 // `DefaultProto` and `DefaultFaultyProto` fulfill the requirements for maybe invocation semantics.
@@ -425,4 +429,4 @@ Each of the protocols described in @transmission_protocol along with the dispatc
 // at-least-once can lead to wrong results for non-idempotent operations
 // at-most-once work correctly for all operations
 = Experiments
-
+The following experiments were conducted to test the invocation semantics of the implemented protocols:
