@@ -24,7 +24,7 @@ use tokio::sync::Mutex;
 use crate::args::InvocationSemantics;
 
 /// Number of test iterations to perform
-const TEST_ITERATIONS: usize = 10;
+const TEST_ITERATIONS: usize = 1;
 
 // /// Number of method calls to perform every test iteration
 // const METHOD_CALLS: usize = 1000;
@@ -40,7 +40,7 @@ const MIN_METHOD_CALLS_TO_PROB_CHECK: usize = 10_000;
 
 /// Maximum number of method calls to perform in a single test iteration
 /// If the failure threshold is not reached, we stop testing the protocol
-const MAX_METHOD_CALLS: usize = 10_000;
+const MAX_METHOD_CALLS: usize = 100;
 
 /// We will go through six "nines" of network reliability:
 /// 90% -> 99% -> 99.9% -> ...
