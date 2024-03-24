@@ -535,7 +535,9 @@ impl TransmissionProtocol for DefaultProto {
         _retries: u8,
     ) -> io::Result<usize> {
         let packed = pack_bytes(payload);
-        sock.send_to(&packed, target).await
+        sock.send_to(&packed, target).await?;
+
+        Ok(payload.len())
     }
 
     async fn recv_bytes(
@@ -576,7 +578,9 @@ impl<const FRAC: u32> TransmissionProtocol for FaultyDefaultProto<FRAC> {
             }
             false => {
                 let packed = pack_bytes(payload);
-                sock.send_to(&packed, target).await
+                sock.send_to(&packed, target).await?;
+
+                Ok(payload.len())
             }
         }
     }

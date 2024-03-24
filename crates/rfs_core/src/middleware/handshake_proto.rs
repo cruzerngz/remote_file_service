@@ -7,7 +7,7 @@ use std::{io, net::SocketAddrV4, time::Duration};
 
 use async_trait::async_trait;
 use futures::io::ReadToEnd;
-use futures::FutureExt;
+use futures::{Future, FutureExt};
 use rand::seq;
 use tokio::net::{ToSocketAddrs, UdpSocket};
 
@@ -108,6 +108,24 @@ async fn new_socket_from_existing(sock: &UdpSocket) -> io::Result<UdpSocket> {
     let sock = UdpSocket::bind(SocketAddrV4::new(addr.to_owned(), 0)).await?;
 
     Ok(sock)
+}
+
+/// Perform an operation with a given probabililty
+async fn perform_op_with_probability<O, F: Future<Output = O>>(
+    probability: Option<u32>,
+    default: O,
+    future: F,
+) -> O {
+    match probability {
+        Some(n) => {
+            if probability_frac(n) {
+                log::error!("simulated failure");
+                return default;
+            }
+            future.await
+        }
+        None => future.await,
+    }
 }
 
 impl HandshakeProto {
@@ -347,17 +365,24 @@ impl HandshakeProto {
                     let ser_packet =
                         serialize_primary(&packet).expect("serialization must not fail");
 
-                    match faulty {
-                        Some(n) => {
-                            if probability_frac(n) {
-                            } else {
-                                sock.send_to(&ser_packet, target).await?;
-                            }
-                        }
-                        None => {
-                            sock.send_to(&ser_packet, target).await?;
-                        }
-                    }
+                    perform_op_with_probability(
+                        faulty,
+                        Ok(ser_packet.len()),
+                        sock.send_to(&ser_packet, target),
+                    )
+                    .await?;
+
+                    // match faulty {
+                    //     Some(n) => {
+                    //         if probability_frac(n) {
+                    //         } else {
+                    //             sock.send_to(&ser_packet, target).await?;
+                    //         }
+                    //     }
+                    //     None => {
+                    //         sock.send_to(&ser_packet, target).await?;
+                    //     }
+                    // }
                 }
 
                 // update state and exit
@@ -413,17 +438,24 @@ impl HandshakeProto {
         let packet = TransmissionPacket::SwitchToAddress(new_address);
         let ser_packet = serialize_primary(&packet).expect("serialization must not fail");
 
-        match faulty {
-            Some(n) => {
-                if probability_frac(n) {
-                } else {
-                    sock.send_to(&ser_packet, addr).await?;
-                }
-            }
-            None => {
-                sock.send_to(&ser_packet, addr).await?;
-            }
-        }
+        perform_op_with_probability(
+            faulty,
+            Ok(ser_packet.len()),
+            sock.send_to(&ser_packet, addr),
+        )
+        .await?;
+
+        // match faulty {
+        //     Some(n) => {
+        //         if probability_frac(n) {
+        //         } else {
+        //             sock.send_to(&ser_packet, addr).await?;
+        //         }
+        //     }
+        //     None => {
+        //         sock.send_to(&ser_packet, addr).await?;
+        //     }
+        // }
 
         state.ingest(HandshakeRxEvent::SendNewAddr);
 
@@ -475,17 +507,24 @@ impl HandshakeProto {
                 None => consec_sequences.push(sequence_num),
             }
 
-            match faulty {
-                Some(n) => {
-                    if probability_frac(n) {
-                    } else {
-                        sock.send_to(&ser_packet, target).await?;
-                    }
-                }
-                None => {
-                    sock.send_to(&ser_packet, target).await?;
-                }
-            }
+            perform_op_with_probability(
+                faulty,
+                Ok(ser_packet.len()),
+                sock.send_to(&ser_packet, target),
+            )
+            .await?;
+
+            // match faulty {
+            //     Some(n) => {
+            //         if probability_frac(n) {
+            //         } else {
+            //             sock.send_to(&ser_packet, target).await?;
+            //         }
+            //     }
+            //     None => {
+            //         sock.send_to(&ser_packet, target).await?;
+            //     }
+            // }
 
             // receive with timeout
             let size = tokio::select! {
@@ -575,17 +614,24 @@ impl HandshakeProto {
         // we will send multiple times to ensure that the packet is received.
         // only one packet needs to be received for this to be successful
         for _ in 0..repeats {
-            match faulty {
-                Some(n) => {
-                    if probability_frac(n) {
-                    } else {
-                        sock.send_to(&ser_packet, target).await?;
-                    }
-                }
-                None => {
-                    sock.send_to(&ser_packet, target).await?;
-                }
-            }
+            perform_op_with_probability(
+                faulty,
+                Ok(ser_packet.len()),
+                sock.send_to(&ser_packet, target),
+            )
+            .await?;
+
+            // match faulty {
+            //     Some(n) => {
+            //         if probability_frac(n) {
+            //         } else {
+            //             sock.send_to(&ser_packet, target).await?;
+            //         }
+            //     }
+            //     None => {
+            //         sock.send_to(&ser_packet, target).await?;
+            //     }
+            // }
         }
 
         Ok(())
