@@ -11,6 +11,7 @@ mod handshake_proto;
 
 use futures::FutureExt;
 use std::collections::HashMap;
+use std::fmt::Display;
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::net::{SocketAddr, SocketAddrV4};
 use std::sync::Arc;
@@ -279,7 +280,7 @@ pub enum TransmissionPacket {
 
 /// Types that implement this trait can be plugged into [`ContextManager`] and [`Dispatcher`].
 #[async_trait]
-pub trait TransmissionProtocol: Debug {
+pub trait TransmissionProtocol: Debug + Display {
     /// Send bytes to the remote. Any fault-tolerant logic should be implemented here.
     async fn send_bytes(
         &self,
@@ -318,6 +319,12 @@ pub fn sockaddr_to_v4(addr: SocketAddr) -> io::Result<SocketAddrV4> {
 /// Every sent item needs an ack back.
 #[derive(Clone, Debug, Default)]
 pub struct RequestAckProto;
+
+impl Display for RequestAckProto {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}", &self)
+    }
+}
 
 #[async_trait]
 impl TransmissionProtocol for RequestAckProto {
@@ -420,6 +427,12 @@ pub struct FaultyRequestAckProto {
 impl FaultyRequestAckProto {
     pub fn from_frac(frac: u32) -> Self {
         Self { frac }
+    }
+}
+
+impl Display for FaultyRequestAckProto {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "FaultyRequestAckProto")
     }
 }
 
@@ -532,6 +545,12 @@ fn probability_frac(frac: u32) -> bool {
 #[derive(Clone, Debug)]
 pub struct DefaultProto;
 
+impl Display for DefaultProto {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}", &self)
+    }
+}
+
 #[async_trait]
 impl TransmissionProtocol for DefaultProto {
     async fn send_bytes(
@@ -574,6 +593,12 @@ pub struct FaultyDefaultProto {
 impl FaultyDefaultProto {
     pub fn from_frac(frac: u32) -> Self {
         Self { frac }
+    }
+}
+
+impl Display for FaultyDefaultProto {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "FaultyDefaultProto")
     }
 }
 

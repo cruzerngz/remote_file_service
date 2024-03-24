@@ -86,7 +86,29 @@ async fn main() -> io::Result<()> {
 
     match args.test {
         true => {
-            test::test_mode(manager).await?;
+            // test::test_mode(manager).await?;
+
+            let inv_prob = match args.simulate_ommisions {
+                Some(frac) => frac,
+                None => {
+                    return Err(io::Error::new(
+                        io::ErrorKind::InvalidInput,
+                        "test mode requires specifying simulated ommisions",
+                    ))
+                }
+            };
+
+            let _ = data_collection::test(
+                args.invocation_semantics.clone(),
+                inv_prob,
+                args.listen_address,
+                args.target,
+                args.port,
+                args.request_timeout.into(),
+                args.num_retries,
+            )
+            .await?;
+
             return Ok(());
         }
         false => {

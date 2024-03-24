@@ -1,7 +1,7 @@
 //! Module for [HandshakeProto]
 #![allow(unused)]
 
-use std::fmt::Debug;
+use std::fmt::{Debug, Display};
 use std::net::Ipv4Addr;
 use std::{io, net::SocketAddrV4, time::Duration};
 
@@ -643,6 +643,18 @@ impl HandshakeProto {
 impl FaultyHandshakeProto {
     pub fn from_frac(frac: u32) -> Self {
         Self { frac }
+    }
+}
+
+impl Display for HandshakeProto {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}", &self)
+    }
+}
+
+impl Display for FaultyHandshakeProto {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "FaultyHandshakeProto")
     }
 }
 

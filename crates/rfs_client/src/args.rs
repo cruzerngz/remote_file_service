@@ -52,7 +52,7 @@ pub struct ClientArgs {
     pub test: bool,
 }
 
-#[derive(Clone, Debug, clap::ValueEnum)]
+#[derive(Clone, Copy, Debug, clap::ValueEnum)]
 pub enum InvocationSemantics {
     /// A request is sent only once, and the receipt is not guaranteed.
     Maybe,

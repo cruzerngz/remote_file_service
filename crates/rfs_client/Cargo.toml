@@ -15,8 +15,11 @@ tokio-util = { workspace = true }
 log = { workspace = true }
 pretty_env_logger = { workspace = true }
 futures = { workspace = true }
+serde = { workspace = true }
+
 
 crossterm = { version = "0", features = ["event-stream"] }
 ratatui = { version = "0", features = ["all-widgets"] }
 humantime = { workspace = true }
 shh = "1"
+csv = "1"

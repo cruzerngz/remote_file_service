@@ -41,6 +41,10 @@ pub struct RfsServer {
     ///
     /// A path can have multiple callbacks.
     pub file_upd_callbacks: HashMap<String, Vec<FileUpdateCallback>>,
+
+    // these are used for testing
+    pub protocol_name: String,
+    pub idempotent_counter: HashMap<u64, u64>,
 }
 
 #[derive(Debug)]
@@ -61,6 +65,9 @@ impl Default for RfsServer {
             base: PathBuf::from(exe_dir),
             read_cache: Default::default(),
             file_upd_callbacks: Default::default(),
+
+            protocol_name: Default::default(),
+            idempotent_counter: Default::default(),
         }
     }
 }
@@ -75,7 +82,15 @@ impl RfsServer {
                 .expect("path must be valid"),
             read_cache: Default::default(),
             file_upd_callbacks: Default::default(),
+
+            protocol_name: Default::default(),
+            idempotent_counter: Default::default(),
         }
+    }
+
+    /// Set the protocol name
+    pub fn set_protocol_name(&mut self, name: String) {
+        self.protocol_name = name;
     }
 
     /// Checks if a provided path contains prev-dir path segments `..`.
@@ -365,6 +380,44 @@ impl CallbackOps for RfsServer {
     }
 }
 
+#[async_trait]
+impl TestOps for RfsServer {
+    /// Get the stringified name of the protocol used by the remote.
+    async fn get_remote_protocol(&mut self) -> String {
+        self.protocol_name.clone()
+    }
+
+    /// Simulate an idempotent operation.
+    ///
+    /// The same result is returned regardless of the number of invocations.
+    async fn test_idempotent(&mut self, uuid: u64) -> u64 {
+        uuid
+    }
+
+    /// Simulate a non-idempotent operation. (transaction updates, etc.)
+    ///
+    /// The result can differ based on the number of invocations.
+    /// This method returns the number of invocations made for the same `uuid`.
+    async fn test_non_idempotent(&mut self, uuid: u64) -> usize {
+        match self.idempotent_counter.get_mut(&uuid) {
+            Some(count) => {
+                *count += 1;
+
+                *count as usize
+            }
+            None => {
+                self.idempotent_counter.insert(uuid, 1);
+
+                1
+            }
+        }
+    }
+
+    async fn reset_non_idempotent(&mut self) -> () {
+        self.idempotent_counter.clear();
+    }
+}
+
 // assign dispatch paths to the server.
 payload_handler! {
     RfsServer,
@@ -388,6 +441,12 @@ payload_handler! {
 
     // callbacks
     CallbackOpsRegisterFileUpdate => CallbackOps::register_file_update_payload,
+
+    // tests
+    TestOpsGetRemoteProtocol => TestOps::get_remote_protocol_payload,
+    TestOpsTestIdempotent => TestOps::test_idempotent_payload,
+    TestOpsTestNonIdempotent => TestOps::test_non_idempotent_payload,
+    TestOpsResetNonIdempotent => TestOps::reset_non_idempotent_payload,
 }
 
 // #[async_trait]
