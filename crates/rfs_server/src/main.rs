@@ -40,13 +40,11 @@ async fn main() {
 
     let mut dispatcher: Dispatcher<RfsServer> =
         match (args.invocation_semantics, args.simulate_ommisions) {
-            (args::InvocationSemantics::Maybe, true) => {
+            (args::InvocationSemantics::Maybe, Some(frac)) => {
                 Dispatcher::new(
                     addr,
                     server,
-                    Arc::new(FaultyDefaultProto::from_frac(
-                        rfs::defaults::DEFAULT_FAILURE_RATE,
-                    )),
+                    Arc::new(FaultyDefaultProto::from_frac(frac)),
                     args.sequential,
                     args.request_timeout.into(),
                     rfs::defaults::DEFAULT_RETRIES,
@@ -54,7 +52,7 @@ async fn main() {
                 )
                 .await
             }
-            (args::InvocationSemantics::Maybe, false) => {
+            (args::InvocationSemantics::Maybe, None) => {
                 Dispatcher::new(
                     addr,
                     server,
@@ -66,13 +64,11 @@ async fn main() {
                 )
                 .await
             }
-            (args::InvocationSemantics::AtLeastOnce, true) => {
+            (args::InvocationSemantics::AtLeastOnce, Some(frac)) => {
                 Dispatcher::new(
                     addr,
                     server,
-                    Arc::new(FaultyRequestAckProto::from_frac(
-                        rfs::defaults::DEFAULT_FAILURE_RATE,
-                    )),
+                    Arc::new(FaultyRequestAckProto::from_frac(frac)),
                     args.sequential,
                     args.request_timeout.into(),
                     rfs::defaults::DEFAULT_RETRIES,
@@ -80,7 +76,7 @@ async fn main() {
                 )
                 .await
             }
-            (args::InvocationSemantics::AtLeastOnce, false) => {
+            (args::InvocationSemantics::AtLeastOnce, None) => {
                 Dispatcher::new(
                     addr,
                     server,
@@ -92,13 +88,11 @@ async fn main() {
                 )
                 .await
             }
-            (args::InvocationSemantics::AtMostOnce, true) => {
+            (args::InvocationSemantics::AtMostOnce, Some(frac)) => {
                 Dispatcher::new(
                     addr,
                     server,
-                    Arc::new(FaultyHandshakeProto::from_frac(
-                        rfs::defaults::DEFAULT_FAILURE_RATE,
-                    )),
+                    Arc::new(FaultyHandshakeProto::from_frac(frac)),
                     args.sequential,
                     args.request_timeout.into(),
                     rfs::defaults::DEFAULT_RETRIES,
@@ -106,7 +100,7 @@ async fn main() {
                 )
                 .await
             }
-            (args::InvocationSemantics::AtMostOnce, false) => {
+            (args::InvocationSemantics::AtMostOnce, None) => {
                 Dispatcher::new(
                     addr,
                     server,

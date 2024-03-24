@@ -43,8 +43,10 @@ pub(crate) struct ServerArgs {
     pub invocation_semantics: InvocationSemantics,
 
     /// Whether to simulate a faulty network
-    #[clap(long)]
-    pub simulate_ommisions: bool,
+    ///
+    /// The server will simulate a transmission failure every 1 in N attempts.
+    #[clap(long, value_name = "N")]
+    pub simulate_ommisions: Option<u32>,
 }
 
 #[derive(Clone, Debug, clap::ValueEnum)]

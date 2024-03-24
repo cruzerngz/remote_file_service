@@ -36,9 +36,11 @@ pub struct ClientArgs {
     #[clap(default_value_t = InvocationSemantics::AtMostOnce)]
     pub invocation_semantics: InvocationSemantics,
 
-    /// Whether to simulate a faulty network
-    #[clap(long)]
-    pub simulate_ommisions: bool,
+    /// Whether to simulate a faulty network.
+    ///
+    /// The client will simulate a transmission failure every 1 in N attempts.
+    #[clap(long, value_name = "N")]
+    pub simulate_ommisions: Option<u32>,
 
     /// Start the client in test mode.
     /// This mode checks for general runtime stability and

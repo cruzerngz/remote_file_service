@@ -22,19 +22,17 @@ async fn main() -> io::Result<()> {
 
     let args = ClientArgs::parse();
     let manager = match (args.invocation_semantics, args.simulate_ommisions) {
-        (args::InvocationSemantics::Maybe, true) => {
+        (args::InvocationSemantics::Maybe, Some(frac)) => {
             ContextManager::new(
                 args.listen_address,
                 SocketAddrV4::new(args.target, args.port),
                 args.request_timeout.into(),
                 args.num_retries,
-                Arc::new(FaultyDefaultProto::from_frac(
-                    rfs::defaults::DEFAULT_FAILURE_RATE,
-                )),
+                Arc::new(FaultyDefaultProto::from_frac(frac)),
             )
             .await?
         }
-        (args::InvocationSemantics::Maybe, false) => {
+        (args::InvocationSemantics::Maybe, None) => {
             ContextManager::new(
                 args.listen_address,
                 SocketAddrV4::new(args.target, args.port),
@@ -44,19 +42,17 @@ async fn main() -> io::Result<()> {
             )
             .await?
         }
-        (args::InvocationSemantics::AtLeastOnce, true) => {
+        (args::InvocationSemantics::AtLeastOnce, Some(frac)) => {
             ContextManager::new(
                 args.listen_address,
                 SocketAddrV4::new(args.target, args.port),
                 args.request_timeout.into(),
                 args.num_retries,
-                Arc::new(FaultyRequestAckProto::from_frac(
-                    rfs::defaults::DEFAULT_FAILURE_RATE,
-                )),
+                Arc::new(FaultyRequestAckProto::from_frac(frac)),
             )
             .await?
         }
-        (args::InvocationSemantics::AtLeastOnce, false) => {
+        (args::InvocationSemantics::AtLeastOnce, None) => {
             ContextManager::new(
                 args.listen_address,
                 SocketAddrV4::new(args.target, args.port),
@@ -66,19 +62,17 @@ async fn main() -> io::Result<()> {
             )
             .await?
         }
-        (args::InvocationSemantics::AtMostOnce, true) => {
+        (args::InvocationSemantics::AtMostOnce, Some(frac)) => {
             ContextManager::new(
                 args.listen_address,
                 SocketAddrV4::new(args.target, args.port),
                 args.request_timeout.into(),
                 args.num_retries,
-                Arc::new(FaultyHandshakeProto::from_frac(
-                    rfs::defaults::DEFAULT_FAILURE_RATE,
-                )),
+                Arc::new(FaultyHandshakeProto::from_frac(frac)),
             )
             .await?
         }
-        (args::InvocationSemantics::AtMostOnce, false) => {
+        (args::InvocationSemantics::AtMostOnce, None) => {
             ContextManager::new(
                 args.listen_address,
                 SocketAddrV4::new(args.target, args.port),

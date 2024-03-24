@@ -91,7 +91,7 @@ where
     pub async fn dispatch(&mut self) {
         let mut buf = [0; BYTE_BUF_SIZE];
 
-        let mut request_num = 0;
+        let mut request_num: u32 = 0;
 
         loop {
             log::info!("awaiting request #{}", request_num);
