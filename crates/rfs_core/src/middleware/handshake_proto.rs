@@ -6,6 +6,7 @@ use std::net::Ipv4Addr;
 use std::{io, net::SocketAddrV4, time::Duration};
 
 use async_trait::async_trait;
+use futures::io::ReadToEnd;
 use futures::FutureExt;
 use rand::seq;
 use tokio::net::{ToSocketAddrs, UdpSocket};
@@ -437,9 +438,11 @@ impl HandshakeProto {
         target: SocketAddrV4,
         rx_data: &mut Vec<u8>,
         timeout: Duration,
+        retries: u8,
         faulty: Option<u32>,
     ) -> io::Result<()> {
         let mut sequence_num = 0;
+        let mut consec_sequences = Vec::new();
 
         loop {
             let mut seq_buf = [0_u8; 65535];
@@ -449,6 +452,28 @@ impl HandshakeProto {
             let ser_packet = serialize_primary(&packet).expect("serialization must not fail");
 
             log::debug!("rx requesting sequence {}", sequence_num);
+
+            match consec_sequences.len() as u8 >= retries {
+                true => {
+                    log::error!("maximum retries for sequence {} reached", sequence_num);
+                    return Err(io::Error::new(
+                        io::ErrorKind::TimedOut,
+                        "maximum retries reached for a sequence number",
+                    ));
+                }
+                false => (),
+            }
+
+            match consec_sequences.first() {
+                Some(num) => match num == &sequence_num {
+                    true => consec_sequences.push(sequence_num),
+                    false => {
+                        consec_sequences.clear();
+                        consec_sequences.push(sequence_num)
+                    }
+                },
+                None => consec_sequences.push(sequence_num),
+            }
 
             match faulty {
                 Some(n) => {
@@ -526,8 +551,10 @@ impl HandshakeProto {
                     break;
                 }
 
+                // no-op
                 TransmissionPacket::Ack(_) | TransmissionPacket::Seq(_) => {
-                    unimplemented!("cases are never handled by rx")
+                    continue;
+                    // unimplemented!("cases are never handled by rx")
                 }
             }
         }
@@ -660,6 +687,7 @@ impl TransmissionProtocol for HandshakeProto {
                         rx_target.expect("no target to receive from"),
                         &mut rx_data,
                         timeout,
+                        retries,
                         None,
                     )
                     .await?
@@ -779,6 +807,7 @@ impl<const FRAC: u32> TransmissionProtocol for FaultyHandshakeProto<FRAC> {
                             rx_target.expect("no target to receive from"),
                             &mut rx_data,
                             timeout,
+                            retries,
                             Some(FRAC),
                         )
                         .await?
