@@ -12,8 +12,8 @@ use std::{
 use clap::Parser;
 use futures::{lock::Mutex, FutureExt};
 use rfs::middleware::{
-    DefaultProto, Dispatcher, FaultyRequestAckProto, HandshakeProto, RequestAckProto,
-    TransmissionProtocol,
+    DefaultProto, Dispatcher, FaultyDefaultProto, FaultyHandshakeProto, FaultyRequestAckProto,
+    HandshakeProto, RequestAckProto, TransmissionProtocol,
 };
 
 use crate::{
@@ -44,7 +44,7 @@ async fn main() {
                 Dispatcher::new(
                     addr,
                     server,
-                    Arc::new(DefaultProto),
+                    Arc::new(FaultyDefaultProto::<{ rfs::defaults::DEFAULT_FAILURE_RATE }>),
                     args.sequential,
                     args.request_timeout.into(),
                     rfs::defaults::DEFAULT_RETRIES,
@@ -68,7 +68,7 @@ async fn main() {
                 Dispatcher::new(
                     addr,
                     server,
-                    Arc::new(FaultyRequestAckProto::<10>),
+                    Arc::new(FaultyRequestAckProto::<{ rfs::defaults::DEFAULT_FAILURE_RATE }>),
                     args.sequential,
                     args.request_timeout.into(),
                     rfs::defaults::DEFAULT_RETRIES,
@@ -92,7 +92,7 @@ async fn main() {
                 Dispatcher::new(
                     addr,
                     server,
-                    Arc::new(HandshakeProto {}),
+                    Arc::new(FaultyHandshakeProto::<{ rfs::defaults::DEFAULT_FAILURE_RATE }>),
                     args.sequential,
                     args.request_timeout.into(),
                     rfs::defaults::DEFAULT_RETRIES,
@@ -104,7 +104,7 @@ async fn main() {
                 Dispatcher::new(
                     addr,
                     server,
-                    Arc::new(HandshakeProto {}),
+                    Arc::new(HandshakeProto),
                     args.sequential,
                     args.request_timeout.into(),
                     rfs::defaults::DEFAULT_RETRIES,

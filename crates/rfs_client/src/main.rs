@@ -1,7 +1,7 @@
 mod args;
+mod data_collection;
 mod test;
 mod ui;
-mod data_collection;
 
 use std::{io, net::SocketAddrV4, sync::Arc};
 
@@ -28,7 +28,7 @@ async fn main() -> io::Result<()> {
                 SocketAddrV4::new(args.target, args.port),
                 args.request_timeout.into(),
                 args.num_retries,
-                Arc::new(DefaultProto),
+                Arc::new(FaultyDefaultProto::<{ rfs::defaults::DEFAULT_FAILURE_RATE }>),
             )
             .await?
         }
@@ -48,7 +48,7 @@ async fn main() -> io::Result<()> {
                 SocketAddrV4::new(args.target, args.port),
                 args.request_timeout.into(),
                 args.num_retries,
-                Arc::new(FaultyRequestAckProto::<10>),
+                Arc::new(FaultyRequestAckProto::<{ rfs::defaults::DEFAULT_FAILURE_RATE }>),
             )
             .await?
         }
@@ -68,7 +68,7 @@ async fn main() -> io::Result<()> {
                 SocketAddrV4::new(args.target, args.port),
                 args.request_timeout.into(),
                 args.num_retries,
-                Arc::new(HandshakeProto {}),
+                Arc::new(FaultyHandshakeProto::<{ rfs::defaults::DEFAULT_FAILURE_RATE }>),
             )
             .await?
         }
@@ -78,7 +78,7 @@ async fn main() -> io::Result<()> {
                 SocketAddrV4::new(args.target, args.port),
                 args.request_timeout.into(),
                 args.num_retries,
-                Arc::new(HandshakeProto {}),
+                Arc::new(HandshakeProto),
             )
             .await?
         }

@@ -17,6 +17,11 @@ pub mod defaults {
     pub const DEFAULT_TIMEOUT: &str = "250ms";
     /// Default number of retries
     pub const DEFAULT_RETRIES: u8 = 3;
+
+    /// Default failure rate, used for for testing.
+    ///
+    /// A transmission experiences an omission failure every 1 in 50 attempts on average.
+    pub const DEFAULT_FAILURE_RATE: u32 = 50;
 }
 
 #[cfg(test)]
