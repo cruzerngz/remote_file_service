@@ -2,6 +2,9 @@
 
 LOG_FILE="run_tests.log"
 
+set -e
+set -x
+
 INVOCATION_SEMANTICS=(
     "--invocation-semantics maybe"
     "--invocation-semantics at-least-once"
@@ -23,15 +26,18 @@ for INVO in "${INVOCATION_SEMANTICS[@]}"; do
     # iter over all SIM_OMMISIONS
     for SIM_OMIT in "${SIM_OMMISIONS[@]}"; do
 
-        cargo r --bin rfs_server -- $INVO &
+        echo "Running tests with $INVO and $SIM_OMIT" >> $LOG_FILE
+
+        echo "running normal server" >> $LOG_FILE
+        cargo run --bin rfs_server -- $INVO &
         SERVER_PID=$!
+        cargo run --bin rfs_client -- $INVO $SIM_OMIT --test
         kill $SERVER_PID
-        cargo r --bin rfs_client -- $INVO $SIM_OMIT --test
 
-
-        cargo r --bin rfs_server -- $INVO $SIM_OMIT &
+        echo "running faulty server" >> $LOG_FILE
+        cargo run --bin rfs_server -- $INVO $SIM_OMIT &
         SERVER_PID=$!
-        cargo r --bin rfs_client -- $INVO $SIM_OMIT --test
+        cargo run --bin rfs_client -- $INVO $SIM_OMIT --test
         kill $SERVER_PID
 
     done

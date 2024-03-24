@@ -19,3 +19,6 @@ target/
 # misc
 *.zip
 *.txt
+*.csv
+*.log
+*.json

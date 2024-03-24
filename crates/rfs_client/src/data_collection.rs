@@ -24,7 +24,7 @@ use tokio::sync::Mutex;
 use crate::args::InvocationSemantics;
 
 /// Number of test iterations to perform
-const TEST_ITERATIONS: usize = 1;
+const TEST_ITERATIONS: usize = 10;
 
 // /// Number of method calls to perform every test iteration
 // const METHOD_CALLS: usize = 1000;
@@ -40,7 +40,7 @@ const MIN_METHOD_CALLS_TO_PROB_CHECK: usize = 10_000;
 
 /// Maximum number of method calls to perform in a single test iteration
 /// If the failure threshold is not reached, we stop testing the protocol
-const MAX_METHOD_CALLS: usize = 100;
+const MAX_METHOD_CALLS: usize = 10_000;
 
 /// We will go through six "nines" of network reliability:
 /// 90% -> 99% -> 99.9% -> ...
@@ -106,27 +106,45 @@ pub async fn test(
         ),
     };
 
-    let mut temp_ctx = ContextManager::new(
-        source,
-        SocketAddrV4::new(target, port),
-        timeout,
-        retries,
-        normal_proto.clone(),
-    )
-    .await?;
+    log::info!("creating temp context manager");
+    let mut temp_ctx = loop {
+        tokio::select! {
 
-    let remote_proto = get_remote_protocol_name(&mut temp_ctx).await;
+            _ = tokio::time::sleep(Duration::from_secs(1)) => {
+                log::error!("timeout, retrying...");
+                continue;
+            },
+
+            ctx_res = ContextManager::new(
+                source,
+                SocketAddrV4::new(target, port),
+                timeout,
+                retries,
+                normal_proto.clone(),
+            ) => {
+                match ctx_res {
+                    Ok(ctx) => break ctx,
+                    Err(_) => {
+                        log::error!("failed to create context manager, retrying...");
+                        continue;
+                    }
+                }
+            }
+        }
+    };
+
+    let remote_proto_name = get_remote_protocol_name(&mut temp_ctx).await;
 
     let mut faulty_res = TestResult {
         client_protocol: format!("{}", faulty_proto),
-        remote_protocol: remote_proto.clone(),
+        remote_protocol: remote_proto_name.clone(),
         inverse_failure_probability: Some(inv_prob),
         ..Default::default()
     };
 
     let mut res = TestResult {
         client_protocol: format!("{}", normal_proto),
-        remote_protocol: remote_proto.clone(),
+        remote_protocol: remote_proto_name.clone(),
         inverse_failure_probability: None,
         ..Default::default()
     };
@@ -231,19 +249,30 @@ async fn single_test_iteration(
 ) -> io::Result<()> {
     results.init_count += 1;
 
-    let mut ctx = match ContextManager::new(
-        source,
-        SocketAddrV4::new(target, port),
-        timeout,
-        retries,
-        proto,
-    )
-    .await
-    {
-        Ok(ctx) => ctx,
-        Err(e) => {
-            results.init_failures += 1;
-            return Ok(());
+    let mut ctx = loop {
+        tokio::select! {
+            _ = tokio::time::sleep(Duration::from_secs(1)) => {
+                log::error!("timeout, retrying...");
+                results.init_failures += 1;
+                continue;
+            },
+
+            ctx_res = ContextManager::new(
+                source,
+                SocketAddrV4::new(target, port),
+                timeout,
+                retries,
+                proto.clone(),
+            ) => {
+                match ctx_res {
+                    Ok(ctx) => break ctx,
+                    Err(_) => {
+                        log::error!("failed to create context manager, retrying...");
+                        results.init_failures += 1;
+                        continue;
+                    }
+                }
+            }
         }
     };
 

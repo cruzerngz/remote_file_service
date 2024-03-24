@@ -21,6 +21,34 @@ async fn main() -> io::Result<()> {
         .init();
 
     let args = ClientArgs::parse();
+
+    if args.test {
+        // test::test_mode(manager).await?;
+
+        let inv_prob = match args.simulate_ommisions {
+            Some(frac) => frac,
+            None => {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "test mode requires specifying simulated ommisions",
+                ))
+            }
+        };
+
+        let _ = data_collection::test(
+            args.invocation_semantics.clone(),
+            inv_prob,
+            args.listen_address,
+            args.target,
+            args.port,
+            args.request_timeout.into(),
+            args.num_retries,
+        )
+        .await?;
+
+        return Ok(());
+    }
+
     let manager = match (args.invocation_semantics, args.simulate_ommisions) {
         (args::InvocationSemantics::Maybe, Some(frac)) => {
             ContextManager::new(
@@ -84,38 +112,8 @@ async fn main() -> io::Result<()> {
         }
     };
 
-    match args.test {
-        true => {
-            // test::test_mode(manager).await?;
-
-            let inv_prob = match args.simulate_ommisions {
-                Some(frac) => frac,
-                None => {
-                    return Err(io::Error::new(
-                        io::ErrorKind::InvalidInput,
-                        "test mode requires specifying simulated ommisions",
-                    ))
-                }
-            };
-
-            let _ = data_collection::test(
-                args.invocation_semantics.clone(),
-                inv_prob,
-                args.listen_address,
-                args.target,
-                args.port,
-                args.request_timeout.into(),
-                args.num_retries,
-            )
-            .await?;
-
-            return Ok(());
-        }
-        false => {
-            let mut app = ui::App::new(manager, 60.0, 4.0);
-            app.run().await?;
-        }
-    }
+    let mut app = ui::App::new(manager, 60.0, 4.0);
+    app.run().await?;
 
     return Ok(());
 }
