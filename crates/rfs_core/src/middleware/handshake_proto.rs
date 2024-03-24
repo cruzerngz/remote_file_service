@@ -28,7 +28,9 @@ pub struct HandshakeProto;
 
 /// A faulty version that is compatible with [HandshakeProto].
 #[derive(Debug)]
-pub struct FaultyHandshakeProto<const FRAC: u32>;
+pub struct FaultyHandshakeProto {
+    frac: u32,
+}
 
 /// Transmitter states
 #[derive(Clone, Copy, Debug, Default)]
@@ -638,6 +640,12 @@ impl HandshakeProto {
     }
 }
 
+impl FaultyHandshakeProto {
+    pub fn from_frac(frac: u32) -> Self {
+        Self { frac }
+    }
+}
+
 #[async_trait]
 impl TransmissionProtocol for HandshakeProto {
     async fn send_bytes(
@@ -756,7 +764,7 @@ impl TransmissionProtocol for HandshakeProto {
 }
 
 #[async_trait]
-impl<const FRAC: u32> TransmissionProtocol for FaultyHandshakeProto<FRAC> {
+impl TransmissionProtocol for FaultyHandshakeProto {
     async fn send_bytes(
         &self,
         sock: &UdpSocket,
@@ -788,7 +796,7 @@ impl<const FRAC: u32> TransmissionProtocol for FaultyHandshakeProto<FRAC> {
                             &mut tx_target,
                             timeout,
                             retries,
-                            Some(FRAC),
+                            Some(self.frac),
                         )
                         .await?
                 }
@@ -799,7 +807,7 @@ impl<const FRAC: u32> TransmissionProtocol for FaultyHandshakeProto<FRAC> {
                             &tx_sock,
                             tx_target.expect("tx target not set"),
                             payload,
-                            Some(FRAC),
+                            Some(self.frac),
                         )
                         .await?
                 }
@@ -841,7 +849,7 @@ impl<const FRAC: u32> TransmissionProtocol for FaultyHandshakeProto<FRAC> {
                             sock, // we need to use the existing socket when listening for these changes
                             &mut rx_target,
                             sockaddr_to_v4(rx_sock.local_addr()?)?,
-                            Some(FRAC),
+                            Some(self.frac),
                         )
                         .await?
                 }
@@ -854,7 +862,7 @@ impl<const FRAC: u32> TransmissionProtocol for FaultyHandshakeProto<FRAC> {
                             &mut rx_data,
                             timeout,
                             retries,
-                            Some(FRAC),
+                            Some(self.frac),
                         )
                         .await?
                 }
@@ -864,7 +872,7 @@ impl<const FRAC: u32> TransmissionProtocol for FaultyHandshakeProto<FRAC> {
                             &sock,
                             rx_target.expect("no target to receive from"),
                             retries,
-                            Some(FRAC),
+                            Some(self.frac),
                         )
                         .await?;
                     break;

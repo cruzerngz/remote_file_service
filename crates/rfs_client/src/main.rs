@@ -28,7 +28,9 @@ async fn main() -> io::Result<()> {
                 SocketAddrV4::new(args.target, args.port),
                 args.request_timeout.into(),
                 args.num_retries,
-                Arc::new(FaultyDefaultProto::<{ rfs::defaults::DEFAULT_FAILURE_RATE }>),
+                Arc::new(FaultyDefaultProto::from_frac(
+                    rfs::defaults::DEFAULT_FAILURE_RATE,
+                )),
             )
             .await?
         }
@@ -48,7 +50,9 @@ async fn main() -> io::Result<()> {
                 SocketAddrV4::new(args.target, args.port),
                 args.request_timeout.into(),
                 args.num_retries,
-                Arc::new(FaultyRequestAckProto::<{ rfs::defaults::DEFAULT_FAILURE_RATE }>),
+                Arc::new(FaultyRequestAckProto::from_frac(
+                    rfs::defaults::DEFAULT_FAILURE_RATE,
+                )),
             )
             .await?
         }
@@ -68,7 +72,9 @@ async fn main() -> io::Result<()> {
                 SocketAddrV4::new(args.target, args.port),
                 args.request_timeout.into(),
                 args.num_retries,
-                Arc::new(FaultyHandshakeProto::<{ rfs::defaults::DEFAULT_FAILURE_RATE }>),
+                Arc::new(FaultyHandshakeProto::from_frac(
+                    rfs::defaults::DEFAULT_FAILURE_RATE,
+                )),
             )
             .await?
         }

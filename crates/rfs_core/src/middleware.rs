@@ -413,10 +413,18 @@ impl TransmissionProtocol for RequestAckProto {
 ///
 /// The proto will fail to transmit every 1 in `FRAC` invocations on average.
 #[derive(Clone, Debug)]
-pub struct FaultyRequestAckProto<const FRAC: u32>;
+pub struct FaultyRequestAckProto {
+    frac: u32,
+}
+
+impl FaultyRequestAckProto {
+    pub fn from_frac(frac: u32) -> Self {
+        Self { frac }
+    }
+}
 
 #[async_trait]
-impl<const FRAC: u32> TransmissionProtocol for FaultyRequestAckProto<FRAC> {
+impl TransmissionProtocol for FaultyRequestAckProto {
     async fn send_bytes(
         &self,
         sock: &UdpSocket,
@@ -437,7 +445,7 @@ impl<const FRAC: u32> TransmissionProtocol for FaultyRequestAckProto<FRAC> {
             log::debug!("sending data to target");
 
             // occasionally err
-            let send_size = match probability_frac(FRAC) {
+            let send_size = match probability_frac(self.frac) {
                 true => {
                     log::error!("simulated packet drop");
                     payload.len()
@@ -559,10 +567,18 @@ impl TransmissionProtocol for DefaultProto {
 
 /// A faulty version of [DefaultProto].
 #[derive(Debug)]
-pub struct FaultyDefaultProto<const FRAC: u32>;
+pub struct FaultyDefaultProto {
+    frac: u32,
+}
+
+impl FaultyDefaultProto {
+    pub fn from_frac(frac: u32) -> Self {
+        Self { frac }
+    }
+}
 
 #[async_trait]
-impl<const FRAC: u32> TransmissionProtocol for FaultyDefaultProto<FRAC> {
+impl TransmissionProtocol for FaultyDefaultProto {
     async fn send_bytes(
         &self,
         sock: &UdpSocket,
@@ -571,7 +587,7 @@ impl<const FRAC: u32> TransmissionProtocol for FaultyDefaultProto<FRAC> {
         _timeout: Duration,
         _retries: u8,
     ) -> io::Result<usize> {
-        match probability_frac(FRAC) {
+        match probability_frac(self.frac) {
             true => {
                 log::error!("simulated packet drop");
                 Ok(payload.len())
@@ -900,7 +916,7 @@ mod tests {
 
         log::info!("testing FaultyRequestAckProto small");
         tx_rx(
-            Arc::new(FaultyRequestAckProto::<10>),
+            Arc::new(FaultyRequestAckProto::from_frac(10)),
             false,
             Duration::from_millis(400),
             3,
