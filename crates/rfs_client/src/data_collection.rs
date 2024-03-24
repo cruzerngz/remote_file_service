@@ -1,12 +1,9 @@
 //! Data collection module. Tests a particular protocol and the success rate
-#![allow(unused)]
 
 use std::{
-    borrow::BorrowMut,
     hash::{DefaultHasher, Hash, Hasher},
     io,
     net::{Ipv4Addr, SocketAddrV4},
-    ops::Deref,
     sync::Arc,
     time::Duration,
 };
@@ -19,7 +16,6 @@ use rfs::{
     },
 };
 use serde::Serialize;
-use tokio::sync::Mutex;
 
 use crate::args::InvocationSemantics;
 
@@ -43,12 +39,6 @@ const TERMINATION_FAILURE_THRESHOLD: f64 = 0.001;
 /// Maximum number of method calls to perform in a single test iteration
 /// If the failure threshold is not reached, we stop testing the protocol
 const MAX_METHOD_CALLS: usize = 10_000;
-
-/// We will go through six "nines" of network reliability:
-/// 90% -> 99% -> 99.9% -> ...
-///
-/// If I test any more than this I will be waiting forever for a failure.
-const INV_PROBABILITIES: [usize; 6] = [10, 100, 1_000, 10_000, 100_000, 1_000_000];
 
 #[derive(Debug, Default, Serialize)]
 struct TestResult {
@@ -152,7 +142,7 @@ pub async fn test(
     };
 
     // test normal proto
-    for test_iter in 0..TEST_ITERATIONS {
+    for _ in 0..TEST_ITERATIONS {
         single_test_iteration(
             normal_proto.clone(),
             source,
@@ -166,7 +156,7 @@ pub async fn test(
     }
 
     // test faulty proto
-    for test_iter in 0..TEST_ITERATIONS {
+    for _ in 0..TEST_ITERATIONS {
         single_test_iteration(
             normal_proto.clone(),
             source,
