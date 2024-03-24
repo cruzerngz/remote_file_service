@@ -36,7 +36,9 @@ const NUM_FAILURE_THRESHOLD: usize = 50;
 ///
 /// Termination checks will terminate the test if the failure rate is too low.
 /// I want to save time.
-const MIN_METHOD_CALLS_TO_PROB_CHECK: usize = 10_000;
+const MIN_METHOD_CALLS_TO_PROB_CHECK: usize = 1_000;
+
+const TERMINATION_FAILURE_THRESHOLD: f64 = 0.001;
 
 /// Maximum number of method calls to perform in a single test iteration
 /// If the failure threshold is not reached, we stop testing the protocol
@@ -296,7 +298,7 @@ async fn single_test_iteration(
         // early exit for very reliable protocols
         if num_method_calls >= MIN_METHOD_CALLS_TO_PROB_CHECK {
             let failure_rate = method_failures as f64 / num_method_calls as f64;
-            if failure_rate < 0.001 {
+            if failure_rate < TERMINATION_FAILURE_THRESHOLD {
                 break;
             }
         }
