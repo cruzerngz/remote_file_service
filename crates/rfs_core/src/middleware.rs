@@ -23,7 +23,7 @@ use serde::{Deserialize, Serialize};
 
 pub use context_manager::*;
 pub use dispatch::*;
-pub use handshake_proto::HandshakeProto;
+pub use handshake_proto::{FaultyHandshakeProto, HandshakeProto};
 
 use crate::ser_de::byte_packer::{pack_bytes, unpack_bytes};
 // define the serde method here once for use by submodules
@@ -533,12 +533,52 @@ impl TransmissionProtocol for DefaultProto {
         payload: &[u8],
         _timeout: Duration,
         _retries: u8,
-    ) -> io::Result<usize>
-// where
-    //     A: ToSocketAddrs + std::marker::Send + std::marker::Sync,
-    {
+    ) -> io::Result<usize> {
         let packed = pack_bytes(payload);
         sock.send_to(&packed, target).await
+    }
+
+    async fn recv_bytes(
+        &self,
+        sock: &UdpSocket,
+        _timeout: Duration,
+        _retries: u8,
+    ) -> io::Result<(SocketAddrV4, Vec<u8>)> {
+        let mut buf = [0_u8; 65535];
+
+        let (size, addr) = sock.recv_from(&mut buf).await?;
+
+        let addr = sockaddr_to_v4(addr)?;
+        let unpacked = unpack_bytes(&buf[..size]);
+
+        Ok((addr, unpacked))
+    }
+}
+
+/// A faulty version of [DefaultProto].
+#[derive(Debug)]
+pub struct FaultyDefaultProto<const FRAC: u32>;
+
+#[async_trait]
+impl<const FRAC: u32> TransmissionProtocol for FaultyDefaultProto<FRAC> {
+    async fn send_bytes(
+        &self,
+        sock: &UdpSocket,
+        target: SocketAddrV4,
+        payload: &[u8],
+        _timeout: Duration,
+        _retries: u8,
+    ) -> io::Result<usize> {
+        match probability_frac(FRAC) {
+            true => {
+                log::error!("simulated packet drop");
+                Ok(payload.len())
+            }
+            false => {
+                let packed = pack_bytes(payload);
+                sock.send_to(&packed, target).await
+            }
+        }
     }
 
     async fn recv_bytes(

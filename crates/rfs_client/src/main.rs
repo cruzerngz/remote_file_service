@@ -1,6 +1,7 @@
 mod args;
 mod test;
 mod ui;
+mod data_collection;
 
 use std::{io, net::SocketAddrV4, sync::Arc};
 

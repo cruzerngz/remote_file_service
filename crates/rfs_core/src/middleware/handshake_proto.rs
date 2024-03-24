@@ -14,7 +14,7 @@ use crate::fsm::TransitableState;
 use crate::ser_de::dbg_vec_to_chars;
 use crate::{fsm, middleware::sockaddr_to_v4};
 
-use super::{deserialize_primary, serialize_primary, TransmissionProtocol};
+use super::{deserialize_primary, probability_frac, serialize_primary, TransmissionProtocol};
 use super::{hash_primary, TransmissionPacket};
 
 /// This protocol ensures that every sent packet from the source must be acknowledged by the sink.
@@ -23,9 +23,11 @@ use super::{hash_primary, TransmissionPacket};
 /// This protocol is not restricted by the UDP data limit.
 /// In other words, it supports the transmission of an arbitrary number of bytes.
 #[derive(Clone, Debug)]
-pub struct HandshakeProto {
-    // rx_state: HandshakeRx, // marker: marker::PhantomData<P>,
-}
+pub struct HandshakeProto;
+
+/// A faulty version that is compatible with [HandshakeProto].
+#[derive(Debug)]
+pub struct FaultyHandshakeProto<const FRAC: u32>;
 
 /// Transmitter states
 #[derive(Clone, Copy, Debug, Default)]
@@ -119,6 +121,7 @@ impl HandshakeProto {
         payload: &[u8],
         timeout: Duration,
         mut retries: u8,
+        faulty: Option<u32>,
     ) -> io::Result<(SocketAddrV4, Vec<u8>)> {
         if payload.len() > 65_507 {
             return Err(io::Error::new(
@@ -128,7 +131,10 @@ impl HandshakeProto {
         }
 
         loop {
-            let _ = sock.send_to(&payload, &target).await?;
+            let _ = match faulty {
+                Some(n) => 0,
+                None => sock.send_to(&payload, &target).await?,
+            };
 
             // send the request until the remote acknowledges the update
             // or when the connection times out
@@ -250,13 +256,16 @@ impl HandshakeProto {
         new_target: &mut Option<SocketAddrV4>,
         timeout: Duration,
         retries: u8,
+        // 1 in N probability of omitting the packet
+        faulty: Option<u32>,
     ) -> io::Result<()> {
         let payload = TransmissionPacket::SwitchToAddress(new_addr);
         let ser_payload = serialize_primary(&payload).expect("serialization must not fail");
 
         log::debug!("tx sending new tx address ({})", new_addr);
 
-        let (_, bytes) = Self::send_and_recv(sock, target, &ser_payload, timeout, retries).await?;
+        let (_, bytes) =
+            Self::send_and_recv(sock, target, &ser_payload, timeout, retries, None).await?;
 
         let resp: TransmissionPacket = deserialize_primary(&bytes)
             .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "deserialization failed"))?;
@@ -283,6 +292,7 @@ impl HandshakeProto {
         sock: &UdpSocket,
         target: SocketAddrV4,
         payload: &[u8],
+        faulty: Option<u32>,
     ) -> io::Result<()> {
         let num_segments = payload.len().div_ceil(Self::MAX_PACKET_PAYLOAD_SIZE);
 
@@ -336,7 +346,17 @@ impl HandshakeProto {
                     let ser_packet =
                         serialize_primary(&packet).expect("serialization must not fail");
 
-                    sock.send_to(&ser_packet, target).await?;
+                    match faulty {
+                        Some(n) => {
+                            if probability_frac(n) {
+                            } else {
+                                sock.send_to(&ser_packet, target).await?;
+                            }
+                        }
+                        None => {
+                            sock.send_to(&ser_packet, target).await?;
+                        }
+                    }
                 }
 
                 // update state and exit
@@ -362,6 +382,7 @@ impl HandshakeProto {
         sock: &UdpSocket,
         new_target: &mut Option<SocketAddrV4>,
         new_address: SocketAddrV4,
+        faulty: Option<u32>,
     ) -> io::Result<SocketAddrV4> {
         let mut recv_buf = [0_u8; 1000];
 
@@ -391,7 +412,17 @@ impl HandshakeProto {
         let packet = TransmissionPacket::SwitchToAddress(new_address);
         let ser_packet = serialize_primary(&packet).expect("serialization must not fail");
 
-        sock.send_to(&ser_packet, addr).await?;
+        match faulty {
+            Some(n) => {
+                if probability_frac(n) {
+                } else {
+                    sock.send_to(&ser_packet, addr).await?;
+                }
+            }
+            None => {
+                sock.send_to(&ser_packet, addr).await?;
+            }
+        }
 
         state.ingest(HandshakeRxEvent::SendNewAddr);
 
@@ -406,6 +437,7 @@ impl HandshakeProto {
         target: SocketAddrV4,
         rx_data: &mut Vec<u8>,
         timeout: Duration,
+        faulty: Option<u32>,
     ) -> io::Result<()> {
         let mut sequence_num = 0;
 
@@ -417,7 +449,18 @@ impl HandshakeProto {
             let ser_packet = serialize_primary(&packet).expect("serialization must not fail");
 
             log::debug!("rx requesting sequence {}", sequence_num);
-            let _ = sock.send_to(&ser_packet, target).await?;
+
+            match faulty {
+                Some(n) => {
+                    if probability_frac(n) {
+                    } else {
+                        sock.send_to(&ser_packet, target).await?;
+                    }
+                }
+                None => {
+                    sock.send_to(&ser_packet, target).await?;
+                }
+            }
 
             // receive with timeout
             let size = tokio::select! {
@@ -492,12 +535,31 @@ impl HandshakeProto {
         Ok(())
     }
 
-    async fn complete(&self, sock: &UdpSocket, target: SocketAddrV4) -> io::Result<()> {
+    async fn complete(
+        &self,
+        sock: &UdpSocket,
+        target: SocketAddrV4,
+        repeats: u8,
+        faulty: Option<u32>,
+    ) -> io::Result<()> {
         let packet = TransmissionPacket::Complete;
         let ser_packet = serialize_primary(&packet).expect("serialization must not fail");
 
-        // send w/o expecting a response
-        sock.send_to(&ser_packet, target).await?;
+        // we will send multiple times to ensure that the packet is received.
+        // only one packet needs to be received for this to be successful
+        for _ in 0..repeats {
+            match faulty {
+                Some(n) => {
+                    if probability_frac(n) {
+                    } else {
+                        sock.send_to(&ser_packet, target).await?;
+                    }
+                }
+                None => {
+                    sock.send_to(&ser_packet, target).await?;
+                }
+            }
+        }
 
         Ok(())
     }
@@ -512,10 +574,7 @@ impl TransmissionProtocol for HandshakeProto {
         payload: &[u8],
         timeout: Duration,
         retries: u8,
-    ) -> io::Result<usize>
-// where
-    //     A: ToSocketAddrs + std::marker::Send + std::marker::Sync,
-    {
+    ) -> io::Result<usize> {
         // first we will switch target sockets so that we don't block the main process
         // from receiving requests
 
@@ -538,6 +597,7 @@ impl TransmissionProtocol for HandshakeProto {
                         &mut tx_target,
                         timeout,
                         retries,
+                        None,
                     )
                     .await?
                 }
@@ -547,6 +607,7 @@ impl TransmissionProtocol for HandshakeProto {
                         &tx_sock,
                         tx_target.expect("tx target not set"),
                         payload,
+                        None,
                     )
                     .await?
                 }
@@ -557,7 +618,6 @@ impl TransmissionProtocol for HandshakeProto {
             }
         }
 
-        // temp break point
         return Ok(payload.len());
     }
 
@@ -589,6 +649,7 @@ impl TransmissionProtocol for HandshakeProto {
                             sock, // we need to use the existing socket when listening for these changes
                             &mut rx_target,
                             sockaddr_to_v4(rx_sock.local_addr()?)?,
+                            None,
                         )
                         .await?
                 }
@@ -599,11 +660,137 @@ impl TransmissionProtocol for HandshakeProto {
                         rx_target.expect("no target to receive from"),
                         &mut rx_data,
                         timeout,
+                        None,
                     )
                     .await?
                 }
                 HandshakeRx::Complete => {
-                    self.complete(&sock, rx_target.expect("no target to receive from"))
+                    self.complete(
+                        &sock,
+                        rx_target.expect("no target to receive from"),
+                        retries,
+                        None,
+                    )
+                    .await?;
+                    break;
+                }
+            }
+        }
+
+        return Ok((rx_source, rx_data));
+    }
+}
+
+#[async_trait]
+impl<const FRAC: u32> TransmissionProtocol for FaultyHandshakeProto<FRAC> {
+    async fn send_bytes(
+        &self,
+        sock: &UdpSocket,
+        target: SocketAddrV4,
+        payload: &[u8],
+        timeout: Duration,
+        retries: u8,
+    ) -> io::Result<usize> {
+        // first we will switch target sockets so that we don't block the main process
+        // from receiving requests
+
+        // state control variable
+        let mut tx_state = HandshakeTx::default();
+        let mut tx_target: Option<SocketAddrV4> = None;
+
+        let tx_sock = new_socket_from_existing(sock).await?;
+
+        loop {
+            log::debug!("tx state: {:?}", tx_state);
+
+            match tx_state {
+                HandshakeTx::SendAddressChange => {
+                    HandshakeProto
+                        .send_address_change(
+                            &mut tx_state,
+                            &sock,
+                            &target, // address changes are sent to the existing address
+                            sockaddr_to_v4(tx_sock.local_addr()?)?,
+                            &mut tx_target,
+                            timeout,
+                            retries,
+                            Some(FRAC),
+                        )
+                        .await?
+                }
+                HandshakeTx::Transmit => {
+                    HandshakeProto
+                        .transmit_data(
+                            &mut tx_state,
+                            &tx_sock,
+                            tx_target.expect("tx target not set"),
+                            payload,
+                            Some(FRAC),
+                        )
+                        .await?
+                }
+
+                HandshakeTx::Complete => {
+                    break;
+                }
+            }
+        }
+
+        return Ok(payload.len());
+    }
+
+    async fn recv_bytes(
+        &self,
+        sock: &UdpSocket,
+        timeout: Duration,
+        retries: u8,
+    ) -> io::Result<(SocketAddrV4, Vec<u8>)> {
+        // state control
+        let mut rx_state = HandshakeRx::default();
+        let mut rx_target: Option<SocketAddrV4> = None;
+
+        let rx_sock = new_socket_from_existing(sock).await?;
+
+        // this is the original address of tx
+        let mut rx_source: SocketAddrV4 = SocketAddrV4::new(Ipv4Addr::new(0, 0, 0, 0), 0);
+
+        let mut rx_data = Vec::new();
+
+        loop {
+            log::debug!("rx state: {:?}", rx_state);
+
+            match rx_state {
+                HandshakeRx::AwaitAddressChange => {
+                    rx_source = HandshakeProto
+                        .await_address_change(
+                            &mut rx_state,
+                            sock, // we need to use the existing socket when listening for these changes
+                            &mut rx_target,
+                            sockaddr_to_v4(rx_sock.local_addr()?)?,
+                            Some(FRAC),
+                        )
+                        .await?
+                }
+                HandshakeRx::Receive => {
+                    HandshakeProto
+                        .receive(
+                            &mut rx_state,
+                            &rx_sock,
+                            rx_target.expect("no target to receive from"),
+                            &mut rx_data,
+                            timeout,
+                            Some(FRAC),
+                        )
+                        .await?
+                }
+                HandshakeRx::Complete => {
+                    HandshakeProto
+                        .complete(
+                            &sock,
+                            rx_target.expect("no target to receive from"),
+                            retries,
+                            Some(FRAC),
+                        )
                         .await?;
                     break;
                 }
