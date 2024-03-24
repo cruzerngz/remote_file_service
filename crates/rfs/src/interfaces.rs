@@ -137,9 +137,33 @@ pub trait CallbackOps {
         -> Result<(), VirtIOErr>;
 }
 
+/// These methods are used for testing invocation semantics (various transmission protocols).
+///
+/// Stuff like transmission failures, the correctness of the return value, are tested here.
+#[remote_interface]
+pub trait TestOps {
+    /// Get the stringified name of the protocol used by the remote.
+    async fn get_remote_protocol() -> String;
+
+    /// Simulate an idempotent operation.
+    ///
+    /// The same result is returned regardless of the number of invocations.
+    async fn test_idempotent(uuid: u64) -> u64;
+
+    /// Simulate a non-idempotent operation. (transaction updates, etc.)
+    ///
+    /// The result can differ based on the number of invocations.
+    /// This method returns the number of invocations made for the same `uuid`.
+    async fn test_non_idempotent(uuid: u64) -> usize;
+
+    /// Reset the state of the non-idempotent operation.
+    async fn reset_non_idempotent() -> ();
+}
+
 /// Data streaming operations.
 ///
 /// These methods should not be invoked directly!
+/// NOT USED
 #[remote_interface]
 pub trait StreamingOps {
     /// Signal to the remote to open a blob transmitter and return the network address.
