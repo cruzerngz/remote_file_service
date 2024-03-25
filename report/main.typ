@@ -444,25 +444,31 @@ For experiment results with no detected failures, the measured failure rate will
 In the control experiment, all protocols perform as expected. There are occasional errors in `RequestAckProto` and `HandshakeProto`, which can be attributed to the high rate of repetition when administering method calls. The baseline failure rate of each protocol are below $0.01%$.
 `HandshakeProto` has a worst-case log-mean failure rate of $10^"-4.5" = 0.003%$.
 This is an order of magnitude greater than the failure rate of `RequestAckProto`, which has a log-mean failure rate of $10^"-5.3" = 0.0005%$.
-
 This failure rate is also an artifact of testing, as rates below $0.01%$ will cause a test termination after $10,000$ iterations.
 
 From the data shown in @plot_overview, a network failure in the remote strongly correlates with the observed failure rate of each protocol.
 Network failures on the client do not have as strong of an effect on the failure rate.
-
 However, due to the number of intermediate data transmissions required to ensure at-most-once semantics, the protocol experiences the same failure rate as other protocols at low log inverse probabilities, $1 / 10^N$ of $N = {1, 2, 3}$.
 
-After compensating for the baseline failure rates observed in the control, `HandshakeProto` is determined to be more reliable than `RequestAckProto`. `DefaultProto` remains the most fault-prone protocol.
+After compensating for the baseline failure rates observed in the control in @comp_overview, `HandshakeProto` is determined to be more reliable than `RequestAckProto`. `DefaultProto` remains the most fault-prone protocol.
+Note that in @comp_overview, the only basis of comparison are the relative failure rates between each protocol.
 
 `RequestAckProto` is also the only protocol to encounter non-idempotent violations, as shown in @idem_overview.
 The failure rate, however miniscule, deems it unsuitable for non-idempotent operations.
 
 #figure(
-    caption: [Overview of failure rates for each protocol. The larger dots in the control plot  represent the log-mean failure rate.],
+    caption: [Overview of failure rates for each protocol. The larger dots in the control plot represent the log-mean failure rate.],
     image(
         "media/plot.svg",
     )
 ) <plot_overview>
+
+#figure(
+    caption: [Compensated failure rates for each protocol. The larger dots in the control plot  represent the log-mean failure rate.],
+    image(
+        "media/plot_comp.svg",
+    )
+) <comp_overview>
 
 #figure(
     caption: [Non idempotent operation results. Note that the y-axes are not shared.],
