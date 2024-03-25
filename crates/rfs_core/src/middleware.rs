@@ -363,7 +363,7 @@ impl TransmissionProtocol for RequestAckProto {
                     let recv_size = recv_res?;
                     let slice = &buf[..recv_size];
 
-                    let de: TransmissionPacket = deserialize_primary(slice).unwrap();
+                    let de: TransmissionPacket = deserialize_primary(slice).map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "deserialization failed"))?;
                     let hash = if let TransmissionPacket::Ack(h) = de {
                         h
                     } else {
@@ -523,7 +523,15 @@ impl TransmissionProtocol for FaultyRequestAckProto {
         let resp = TransmissionPacket::Ack(hash);
 
         let ser_resp = serialize_primary(&resp).expect("serialization should not fail");
-        sock.send_to(&ser_resp, addr).await?;
+
+        match probability_frac(self.frac) {
+            true => {
+                log::error!("simulated packet drop");
+            }
+            false => {
+                sock.send_to(&ser_resp, addr).await?;
+            }
+        };
 
         Ok((sockaddr_to_v4(addr)?, recv_buf[..size].to_vec()))
     }
