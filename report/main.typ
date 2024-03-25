@@ -49,7 +49,7 @@
   #linebreak()
   2023/2024 Semester 2 course project:
 
-  _Design and Implmentation of A System for Remote File Access_
+  _Design and Implementation of A System for Remote File Access_
   #linebreak()
   #linebreak()
   #linebreak()
@@ -187,7 +187,7 @@ This brings a lot of flexibility when defining custom payloads.
 ///
 /// This is an enum containing a C-style variant, a newtype variant, and a
 /// struct variant.
-/// Tuples, arrays and maps are also supported.
+/// Tuples, arrays, and maps are also supported.
 #[derive(Serialize, Deserialize)]
 enum CustomPayload {
     Empty,
@@ -204,7 +204,7 @@ enum CustomPayload {
 There are some design considerations made for this serialization format.
 
 - As a binary (byte-level) format, there is no guarantee that serialized data is human-readable.
-- All multi-byte primitives such as numerics and floats are serialized in big-endian, or Network Byte Order (NBO).
+- All multi-byte primitives, such as numerics and floats, are serialized in big-endian, or Network Byte Order (NBO).
 - The atomic unit of data used throughout the marshalling process is a byte.
 - The data format is partially self-describing. As implementing a self-describing format is not part of the requirements of the project, some data types share the same serialization method.
 - Various byte prefixes and delimiters are used to assert the type of the data during unmarshalling. These bytes are referenced by their equivalent ASCII character. @serde_format_table describes the format with more detail.
@@ -228,7 +228,7 @@ There are some design considerations made for this serialization format.
                 Array bounds are delimited by square brackets (`[`, `]`).
 
             *Example:* `s[[ARR_LENGTH][ITEM1][ITEM2][...]]`],
-            [`tuple`], [`t`], [Same as `array`, bounds are delimited by parantheses (`(`, `)`)],
+            [`tuple`], [`t`], [Same as `array`, bounds are delimited by parentheses (`(`, `)`)],
             [`bytes`], [`b`], [
                 Same as `array`
             ],
@@ -250,7 +250,7 @@ There are some design considerations made for this serialization format.
 
             [`option`], [`o`], [
                 `Some<T>` is encoded as `u8::MAX`, while `None` is encoded as `u8::MIN`.
-                The inner value is serialized according to it's respective data type.
+                The inner value is serialized according to its respective data type.
 
                 *Example:* `o[0b1111_1111][OPTION_VALUE]`, `o[0b0000_0000]`],
 
@@ -306,7 +306,7 @@ The attribute macros `#[remote_interface]` are placed at the top of the interfac
 - A client-side function to invoke the remote method
 - The data type used to represent the request and response of the remote method
 - A unique remote method signature, used to dispatch the correct method on the server side.
-- A remotely invokable trait for context managers to send and receive requests.
+- A remotely invocable trait for context managers to send and receive requests.
 
 // describe the middleware logic, context manager and dispatcher
 == Middleware
@@ -316,7 +316,7 @@ There are two main parts to the middleware layer: the context manager and the di
 
 // describe how the context manager works
 === Context manager
-The context manager is a client-side object that comminucates with the dispatcher across the network.
+The context manager is a client-side object that communicates with the dispatcher across the network.
 
 // describe how the dispatcher works
 === Dispatch <dispatch>
@@ -402,13 +402,13 @@ The faulty protocols omit the transmission of packets based on a set probability
         align: left,
         columns: (auto, auto, auto, auto),
             [*Semantics*], [*protocol*], [*faulty protocol*], [*explanation*],
-            [Maybe], [`DefaultProto`], [`DefaultFaultyProto`], [
+            [Maybe], [`DefaultProto`], [`FaultyDefaultProto`], [
                 Basic UDP messaging does not guarantee the receipt of a packet. Performs simple data compression and decompression.
             ],
-            [At-least-once], [`RequestAckProto`], [`RequestAckFaultyProto`], [
+            [At-least-once], [`RequestAckProto`], [`FaultyRequestAckProto`], [
                 This implementation includes timeouts and retries to ensure the remote receives the packet at least once.
             ],
-            [At-most-once], [`HandshakeProto`], [`HandshakeFaultyProto`], [
+            [At-most-once], [`HandshakeProto`], [`FaultyHandshakeProto`], [
                 To completely fulfill at-most-once semantics, the dispatcher is also configured to filter duplicate requests. The protocol also supports the transmission of arbitrary sized payloads.
             ],
     )
@@ -444,7 +444,7 @@ The experiments described below aim to determine the success and correctness of 
         align: left,
         columns: (auto, auto, auto),
             [*Experiment*], [*Aim*], [*Description*],
-            [1], [Control], [Test with no simulated ommision failures],
+            [1], [Control], [Test with no simulated omission failures],
             [2], [Client-side failure], [Simulate network failures on the client only],
             [3], [Server-side failure], [Simulate network failures on the server only],
             [4], [Twin failure], [Simulate network failures on both the client and server],
@@ -452,23 +452,31 @@ The experiments described below aim to determine the success and correctness of 
 ) <experiment_desc_table>
 
 == Results
-In an ideal network environment, all protocols perform their operations reliably.
+In the control experiment, all protocols perform as expected. There are occasional errors in `RequestAckProto` and `HandshakeProto`, which can be attributed to the high rate of repetition when administering method calls. The baseline failure rate of each protocol are below $0.01%$.
+`HandshakeProto` has a worst-case log-mean failure rate of $10^"-4.5" = 0.003%$.
+This is an order of magnitude greater than the failure rate of `RequestAckProto`, which has a log-mean failure rate of $10^"-5.3" = 0.0005%$.
 
-From the data shown in @plot_overview, HandshakeProto (at-most-once) is the only protocol that guarantees the correct result for all operations.
-However, due to the number of intermediate data transmissions required to ensure at-most-once semantics, the protocol experiences a high failure rate at a log inverse probability, $1 / 10^N$ at $N = 1$ , or $10%$ for every socket transmission.
+This failure rate is also an artifact of testing, as rates below $0.01%$ will cause a test termination after $10,000$ iterations.
 
-At lower simulated failure rates, HandshakeProto becomes more reliable than RequestAckProto (at-least-once).
-RequestAckProto also experiences non-idempotent violations, as shown in @idem_overview.
+From the data shown in @plot_overview, a network failure in the remote strongly correlates with the observed failure rate of each protocol.
+Network failures on the client do not have as strong of an effect on the failure rate.
+
+However, due to the number of intermediate data transmissions required to ensure at-most-once semantics, the protocol experiences the same failure rate as other protocols at a log inverse probability, $1 / 10^N$ of $N = 1$ , or $10%$ for every socket transmission.
+
+After compensating for the baseline failure rates observed in the control, `HandshakeProto` can be deduced as being more reliable than `RequestAckProto`. `DefaultProto` remains the most fault-prone protocol.
+
+`RequestAckProto` is also the only protocol to encounter non-idempotent violations, as shown in @idem_overview.
+The failure rate, however miniscule, deems it unsuitable for non-idempotent operations.
 
 #figure(
-    caption: [Overview of failure rates for each protocol],
+    caption: [Overview of failure rates for each protocol. The larger dots in the control plot  represent the log-mean failure rate.],
     image(
         "media/plot.svg",
     )
 ) <plot_overview>
 
 #figure(
-    caption: [Non idempotent operation results],
+    caption: [Non idempotent operation results. Note that the y-axes are not shared.],
     image(
         "media/idem.svg",
     )

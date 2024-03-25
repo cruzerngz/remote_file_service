@@ -24,6 +24,8 @@ SIM_OMMISIONS=(
     "--simulate-ommisions 1000000"
 )
 
+cargo build --release
+
 # iterate over each elemtn in the INVOCATION_SEMANTICS array
 for INVO in "${INVOCATION_SEMANTICS[@]}"; do
 
