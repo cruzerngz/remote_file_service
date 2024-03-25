@@ -110,7 +110,7 @@ From now on, this library will be referred to as `rfs`.
 )
 
 #pagebreak()
-== Definition
+== Definition <definition>
 #linebreak()
 #figure(
     image(
@@ -146,20 +146,19 @@ The macro does the following:
     ```rs
     /// Method used by the client
     /// Function has a new ContextManager parameter
-    pub async fn say_hello<T: TransmissionProtocol> // misc trait bounds excluded
-        (
+    pub async fn say_hello<T: TransmissionProtocol> ( // misc trait bounds excluded
         ctx: &mut ContextManager<T>,
         content: String,
-        ) -> Result<bool, InvokeError>;
+    ) -> Result<bool, InvokeError>;
     ```
 
-- Generate a request-reply data type used for this interface method
+- Generate a request-reply data type used for this interface method (see @message_format)
 
 - Implement various other interfaces for use with the `ContextManager`
 
 
 // describe the ser/de process and the implementation
-== Message format
+== Message format <message_format>
 Each remote method has its associated enum with request and response variants.
 The request variants contain the method arguments, while the response variants contain the return value.
 The entire enum, along with it's method signature, is serialized when sent over the network.
@@ -266,13 +265,14 @@ Due to the way numeric types are serialized, there are opportunities to compress
 Numeric types that are not 64-bit are cast to 64-bit before serializing.
 Numeric types are used to prefix the length of arrays and strings.
 
-This means that `0` bytes can take up a large proportion of data in a serialized payload.
+For numeric-heavy payloads, contiguous `0` bytes can take up a large proportion of the serialized data.
 
 A simple compression algorithm is implemented to reduce the footprint of the serialized data.
-For byte arrays, each element is serialized directly to its corresponding byte value without casting from 8 to 64 bits.
+For `u8` arrays, each element is serialized directly as 8 bits without casting to 64 bits.
 This circumvents the need to perform redundant compression.
 ```py
 # pseudocode
+# this compression algorithm reduces the footprint of contiguous zero bytes
 def compress(data: bytes) -> bytes:
     compressed = []
 
@@ -302,12 +302,13 @@ def compress(data: bytes) -> bytes:
 == Code generation
 Due to the large amount of boilerplate code required to support the implementation of a remote interface, attribute macros are used to generate most of the code at compile-time.
 
-The attribute macros `#[remote_interface]` are placed at the top of the interface definition. This macro is responsible for modifying the original definition, along with the following additional definitions:
+As explained briefly in @definition, an attribute macro `#[remote_interface]` is placed at the top of the interface definition. This macro is responsible for modifying the original definition, along with the following additional definitions:
 - A client-side function to invoke the remote method
-- The data type used to represent the request and response of the remote method
+- The payload type used to represent the request and response of the remote method
 - A unique remote method signature, used to dispatch the correct method on the server side.
 - A remotely invocable trait for context managers to send and receive requests.
 
+#pagebreak()
 // describe the middleware logic, context manager and dispatcher
 == Middleware
 The middleware layer handles bidirectional communication between a client and the remote.
@@ -359,6 +360,7 @@ def handle_payload(self, payload: bytes) -> bytes:
 
 // describe how the UDP limit is circumvented
 // when using HandshakeProtocol
+#pagebreak()
 === Transmission protocol <transmission_protocol>
 The dispatcher, context manager and remote objects require a transmission protocol to send and receive messages.
 ```rs
@@ -414,24 +416,6 @@ The faulty protocols omit the transmission of packets based on a set probability
     )
 ) <protocol_table>
 
-// === Maybe invocation semantics
-// `DefaultProto` and `DefaultFaultyProto` fulfill the requirements for maybe invocation semantics.
-// As there is no acknowledgement of the receipt of a packet, the remote may or may not receive the packet.
-// The same issue arises when the remote sends a response back to the client.
-
-
-// === At-least-once invocation semantics
-// === At-most-once invocation semantics
-
-
-
-// report on the results of the experiments:
-// - at-most-once invocation semantics
-// - at-least-once invocation semantics
-//
-// what's expected:
-// at-least-once can lead to wrong results for non-idempotent operations
-// at-most-once work correctly for all operations
 = Experiments
 The experiments described below aim to determine the success and correctness of the protocols defined in @protocol_table. The primary goals are to:
 - Determine the success rate of each protocol (e.g. a value is returned from the remote after a request is sent)
