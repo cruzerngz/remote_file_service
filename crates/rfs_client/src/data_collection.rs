@@ -74,7 +74,6 @@ pub async fn test(
     timeout: Duration,
     retries: u8,
 ) -> io::Result<()> {
-
     let absolute_timeout = timeout * retries as u32 * 10;
 
     let (normal_proto, faulty_proto): (
@@ -126,6 +125,11 @@ pub async fn test(
 
     let remote_proto_name = get_remote_protocol_name(&mut temp_ctx).await;
 
+    let failure_prob = match remote_proto_name.starts_with("Faulty") {
+        true => Some(inv_prob),
+        false => None,
+    };
+
     let mut faulty_res = TestResult {
         client_protocol: format!("{}", faulty_proto),
         remote_protocol: remote_proto_name.clone(),
@@ -136,7 +140,7 @@ pub async fn test(
     let mut res = TestResult {
         client_protocol: format!("{}", normal_proto),
         remote_protocol: remote_proto_name.clone(),
-        inverse_failure_probability: None,
+        inverse_failure_probability: failure_prob,
         ..Default::default()
     };
 
