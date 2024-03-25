@@ -405,7 +405,7 @@ The faulty protocols omit the transmission of packets based on a set probability
         columns: (auto, auto, auto, auto),
             [*Semantics*], [*protocol*], [*faulty protocol*], [*explanation*],
             [Maybe], [`DefaultProto`], [`FaultyDefaultProto`], [
-                Basic UDP messaging does not guarantee the receipt of a packet. Performs simple data compression and decompression.
+                Basic UDP. Does not guarantee the receipt of a packet. Performs simple data compression and decompression.
             ],
             [At-least-once], [`RequestAckProto`], [`FaultyRequestAckProto`], [
                 This implementation includes timeouts and retries to ensure the remote receives the packet at least once.
@@ -435,6 +435,11 @@ The experiments described below aim to determine the success and correctness of 
     )
 ) <experiment_desc_table>
 
+The reliability rates simulated follow the lower range of network reliability: "one nine" ($90%$) to "six nines" ($99.9999%$).
+The control experiment will be run with a reliability of $100%$, but shown with a reliability of "ten nines" ($99.99999999%$) for comparison.
+
+For experiment results with no detected failures, the measured failure rate will be substituted as "six nines", or $-6$ in the `log_*_rate` axes.
+
 == Results
 In the control experiment, all protocols perform as expected. There are occasional errors in `RequestAckProto` and `HandshakeProto`, which can be attributed to the high rate of repetition when administering method calls. The baseline failure rate of each protocol are below $0.01%$.
 `HandshakeProto` has a worst-case log-mean failure rate of $10^"-4.5" = 0.003%$.
@@ -445,9 +450,9 @@ This failure rate is also an artifact of testing, as rates below $0.01%$ will ca
 From the data shown in @plot_overview, a network failure in the remote strongly correlates with the observed failure rate of each protocol.
 Network failures on the client do not have as strong of an effect on the failure rate.
 
-However, due to the number of intermediate data transmissions required to ensure at-most-once semantics, the protocol experiences the same failure rate as other protocols at a log inverse probability, $1 / 10^N$ of $N = 1$ , or $10%$ for every socket transmission.
+However, due to the number of intermediate data transmissions required to ensure at-most-once semantics, the protocol experiences the same failure rate as other protocols at low log inverse probabilities, $1 / 10^N$ of $N = {1, 2, 3}$.
 
-After compensating for the baseline failure rates observed in the control, `HandshakeProto` can be deduced as being more reliable than `RequestAckProto`. `DefaultProto` remains the most fault-prone protocol.
+After compensating for the baseline failure rates observed in the control, `HandshakeProto` is determined to be more reliable than `RequestAckProto`. `DefaultProto` remains the most fault-prone protocol.
 
 `RequestAckProto` is also the only protocol to encounter non-idempotent violations, as shown in @idem_overview.
 The failure rate, however miniscule, deems it unsuitable for non-idempotent operations.
