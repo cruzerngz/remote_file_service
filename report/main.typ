@@ -74,6 +74,8 @@
 // outline
 #outline(indent: true,)
 #linebreak()
+#outline(title: "Tables", target: figure.where(kind: table))
+#linebreak()
 #outline(title: "Figures", target: figure.where(kind: image))
 #pagebreak()
 
@@ -88,6 +90,7 @@ The following additional requirements are also implemented:
 1. In-flight data compression
 2. Remote method code generation
 3. Pluggable UDP transmission protocols with various levels of fault tolerance
+4. Client terminal user interface
 
 #linebreak()
 // describe the overall design, ergonomics for a dev
@@ -119,6 +122,8 @@ From now on, this library will be referred to as `rfs`.
 
 An interface can be defined with `rfs` like the one below.
 Remote interfaces will serve as the foundation for all other abstractions (remote file objects, callbacks, etc.).
+
+// #figure(caption: [asdadas], supplement: [Code block])[#align(left)[]]
 ```rs
 #[remote_interface]
 pub trait SimpleOps {
@@ -171,12 +176,15 @@ pub enum SimpleOpsSayHello {
 === Marshalling/Unmarshalling
 The terms "marshalling" and "unmarshalling" will be used interchangeably with "serialization" and "deserialization" throughout this report.
 
-Using the `serde` library to provide helper macros, a custom data format is defined
-with the ability to marshall and unmarshall an arbitrary data type.
+With #link("https://serde.rs/")[`serde`] providing helper macros, a custom data format is defined
+with the ability to marshall and unmarshall arbitrary data types.
 This brings a lot of flexibility when defining custom payloads.
 ```rs
 /// serde provides the necessary macros to call the correct marshall/unmarshall functions
 /// for any data type.
+///
+/// It is up to the implementer to define a serialization format for each data type.
+///
 /// This is an enum containing a C-style variant, a newtype variant, and a
 /// struct variant.
 /// Tuples, arrays and maps are also supported.
@@ -195,15 +203,11 @@ enum CustomPayload {
 ==== Design
 There are some design considerations made for this serialization format.
 
-The data format is a binary (byte-level) format, with no guarantee that the data is human-readable.
-All multi-byte primitives such as numerics and floats are serialized in big-endian, or Network Byte Order (NBO).
-The atomic unit of data used during the marshalling process is a byte.
-
-The data format is partially self-describing.
-As implementing a self-describing format is not part of the requirements of the project, some data types share the same serialization method.
-
-Various byte prefixes and delimiters are used to assert the type of the data during unmarshalling.
-These bytes are referenced by their equivalent ASCII character. @serde_format_table describes the format in detail.
+- As a binary (byte-level) format, there is no guarantee that serialized data is human-readable.
+- All multi-byte primitives such as numerics and floats are serialized in big-endian, or Network Byte Order (NBO).
+- The atomic unit of data used throughout the marshalling process is a byte.
+- The data format is partially self-describing. As implementing a self-describing format is not part of the requirements of the project, some data types share the same serialization method.
+- Various byte prefixes and delimiters are used to assert the type of the data during unmarshalling. These bytes are referenced by their equivalent ASCII character. @serde_format_table describes the format with more detail.
 
 #figure(
     caption: [Marshalling format for common rust data types],
@@ -240,7 +244,7 @@ These bytes are referenced by their equivalent ASCII character. @serde_format_ta
 
             [`enum`], [`e`], [
                 Variant names are prefixed before the inner value as strings.
-                The inner value is serialized according to it's respective data type.
+                The inner value is serialized according to its respective data type.
 
                 *Example:* `e[VARIANT_NAME][VARIANT_VALUE]`],
 
@@ -405,7 +409,7 @@ The faulty protocols omit the transmission of packets based on a set probability
                 This implementation includes timeouts and retries to ensure the remote receives the packet at least once.
             ],
             [At-most-once], [`HandshakeProto`], [`HandshakeFaultyProto`], [
-                To completely fulfill at-most-once semantics, the dispatcher is also configured to filter duplicate requests
+                To completely fulfill at-most-once semantics, the dispatcher is also configured to filter duplicate requests. The protocol also supports the transmission of arbitrary sized payloads.
             ],
     )
 ) <protocol_table>
@@ -429,4 +433,43 @@ The faulty protocols omit the transmission of packets based on a set probability
 // at-least-once can lead to wrong results for non-idempotent operations
 // at-most-once work correctly for all operations
 = Experiments
-The following experiments were conducted to test the invocation semantics of the implemented protocols:
+The experiments described below aim to determine the success and correctness of the protocols defined in @protocol_table. The primary goals are to:
+- Determine the success rate of each protocol (e.g. a value is returned from the remote after a request is sent)
+- Determine the correctness of each protocol (e.g. the value returned from the remote is the expected value for idempotent and non-idempotent operations)
+
+// table of experiments to perform
+#figure(
+    caption: [Various experiments to perform],
+    table(
+        align: left,
+        columns: (auto, auto, auto),
+            [*Experiment*], [*Aim*], [*Description*],
+            [1], [Control], [Test with no simulated ommision failures],
+            [2], [Client-side failure], [Simulate network failures on the client only],
+            [3], [Server-side failure], [Simulate network failures on the server only],
+            [4], [Twin failure], [Simulate network failures on both the client and server],
+    )
+) <experiment_desc_table>
+
+== Results
+In an ideal network environment, all protocols perform their operations reliably.
+
+From the data shown in @plot_overview, HandshakeProto (at-most-once) is the only protocol that guarantees the correct result for all operations.
+However, due to the number of intermediate data transmissions required to ensure at-most-once semantics, the protocol experiences a high failure rate at a log inverse probability, $1 / 10^N$ at $N = 1$ , or $10%$ for every socket transmission.
+
+At lower simulated failure rates, HandshakeProto becomes more reliable than RequestAckProto (at-least-once).
+RequestAckProto also experiences non-idempotent violations, as shown in @idem_overview.
+
+#figure(
+    caption: [Overview of failure rates for each protocol],
+    image(
+        "media/plot.svg",
+    )
+) <plot_overview>
+
+#figure(
+    caption: [Non idempotent operation results],
+    image(
+        "media/idem.svg",
+    )
+) <idem_overview>
