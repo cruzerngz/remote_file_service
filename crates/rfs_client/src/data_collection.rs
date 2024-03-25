@@ -74,11 +74,8 @@ pub async fn test(
     timeout: Duration,
     retries: u8,
 ) -> io::Result<()> {
-    // let (normal_proto, faulty_proto) = match semantics {
-    //     InvocationSemantics::Maybe => (Arc::new(DefaultProto), Arc::new(DefaultProto)),
-    //     InvocationSemantics::AtLeastOnce => todo!(),
-    //     InvocationSemantics::AtMostOnce => todo!(),
-    // };
+
+    let absolute_timeout = timeout * retries as u32 * 10;
 
     let (normal_proto, faulty_proto): (
         Arc<dyn TransmissionProtocol + Send + Sync>,
@@ -86,15 +83,15 @@ pub async fn test(
     ) = match semantics {
         InvocationSemantics::Maybe => (
             Arc::new(DefaultProto),
-            Arc::new(FaultyDefaultProto::from_frac(inv_prob as u32)),
+            Arc::new(FaultyDefaultProto::from_frac(inv_prob)),
         ),
         InvocationSemantics::AtLeastOnce => (
             Arc::new(RequestAckProto),
-            Arc::new(FaultyRequestAckProto::from_frac(inv_prob as u32)),
+            Arc::new(FaultyRequestAckProto::from_frac(inv_prob)),
         ),
         InvocationSemantics::AtMostOnce => (
             Arc::new(HandshakeProto),
-            Arc::new(FaultyHandshakeProto::from_frac(inv_prob as u32)),
+            Arc::new(FaultyHandshakeProto::from_frac(inv_prob)),
         ),
     };
 
@@ -102,8 +99,9 @@ pub async fn test(
     let mut temp_ctx = loop {
         tokio::select! {
 
-            _ = tokio::time::sleep(Duration::from_secs(1)) => {
+            _ = tokio::time::sleep(absolute_timeout) => {
                 log::error!("timeout, retrying...");
+                tokio::time::sleep(absolute_timeout).await;
                 continue;
             },
 
@@ -116,8 +114,9 @@ pub async fn test(
             ) => {
                 match ctx_res {
                     Ok(ctx) => break ctx,
-                    Err(_) => {
-                        log::error!("failed to create context manager, retrying...");
+                    Err(e) => {
+                        log::error!("failed to create context manager: {} retrying...", e);
+                        tokio::time::sleep(absolute_timeout).await;
                         continue;
                     }
                 }
@@ -153,6 +152,8 @@ pub async fn test(
             &mut res,
         )
         .await?;
+
+        // tokio::time::sleep(absolute_timeout).await;
     }
 
     // test faulty proto
@@ -167,6 +168,8 @@ pub async fn test(
             &mut faulty_res,
         )
         .await?;
+
+        // tokio::time::sleep(absolute_timeout).await;
     }
 
     write_results_to_file(&[res, faulty_res])?;
@@ -241,9 +244,12 @@ async fn single_test_iteration(
 ) -> io::Result<()> {
     results.init_count += 1;
 
+    // a very generous timeout for executing a single method call
+    let method_call_absolute_timeout = timeout * retries as u32 * 10;
+
     let mut ctx = loop {
         tokio::select! {
-            _ = tokio::time::sleep(Duration::from_secs(1)) => {
+            _ = tokio::time::sleep(method_call_absolute_timeout) => {
                 log::error!("timeout, retrying...");
                 results.init_failures += 1;
                 continue;
@@ -258,8 +264,9 @@ async fn single_test_iteration(
             ) => {
                 match ctx_res {
                     Ok(ctx) => break ctx,
-                    Err(_) => {
-                        log::error!("failed to create context manager, retrying...");
+                    Err(e) => {
+                        log::error!("failed to create context manager: {}, retrying...", e);
+                        tokio::time::sleep(method_call_absolute_timeout).await;
                         results.init_failures += 1;
                         continue;
                     }
@@ -271,11 +278,8 @@ async fn single_test_iteration(
     let mut num_method_calls = 0;
     let mut method_failures = 0;
 
-    // a very generous timeout for executing a single method call
-    let method_call_absolute_timeout = timeout * retries as u32 * 10;
-
     while num_method_calls < MAX_METHOD_CALLS {
-        log::debug!(
+        log::info!(
             "method call count: {}, failure count: {}",
             num_method_calls,
             method_failures
@@ -313,6 +317,7 @@ async fn single_test_iteration(
                 match method_call_res {
                     Ok(_) => (),
                     Err(_) => {
+                        tokio::time::sleep(method_call_absolute_timeout).await;
                         method_failures += 1;
                     }
                 }
@@ -338,6 +343,7 @@ async fn single_test_iteration(
                     },
 
                     Err(_) => {
+                        tokio::time::sleep(method_call_absolute_timeout).await;
                         method_failures += 1;
                     }
                 }
@@ -356,6 +362,7 @@ async fn single_test_iteration(
                 match method_call_res {
                     Ok(_) => (),
                     Err(_) => {
+                        tokio::time::sleep(method_call_absolute_timeout).await;
                         method_failures += 1;
                     }
                 }

@@ -656,8 +656,8 @@ impl From<io::Error> for InvokeError {
         log::error!("error kind: {:?}", value.kind());
 
         match value.kind() {
-            io::ErrorKind::NotFound => todo!(),
-            io::ErrorKind::PermissionDenied => todo!(),
+            io::ErrorKind::NotFound => InvokeError::HandlerNotFound,
+            io::ErrorKind::PermissionDenied => InvokeError::InvalidData,
             io::ErrorKind::ConnectionRefused
             | io::ErrorKind::ConnectionReset
             | io::ErrorKind::ConnectionAborted
@@ -665,16 +665,16 @@ impl From<io::Error> for InvokeError {
             | io::ErrorKind::AddrInUse
             | io::ErrorKind::AddrNotAvailable
             | io::ErrorKind::BrokenPipe => InvokeError::DataTransmissionFailed,
-            io::ErrorKind::AlreadyExists => todo!(),
-            io::ErrorKind::WouldBlock => todo!(),
+            // io::ErrorKind::AlreadyExists => todo!(),
+            // io::ErrorKind::WouldBlock => todo!(),
             io::ErrorKind::InvalidInput | io::ErrorKind::InvalidData => InvokeError::InvalidData,
             io::ErrorKind::TimedOut => InvokeError::RequestTimedOut,
-            io::ErrorKind::WriteZero => todo!(),
-            io::ErrorKind::Interrupted => todo!(),
-            io::ErrorKind::Unsupported => todo!(),
-            io::ErrorKind::UnexpectedEof => todo!(),
-            io::ErrorKind::OutOfMemory => todo!(),
-            io::ErrorKind::Other => todo!(),
+            // io::ErrorKind::WriteZero => todo!(),
+            // io::ErrorKind::Interrupted => todo!(),
+            // io::ErrorKind::Unsupported => todo!(),
+            // io::ErrorKind::UnexpectedEof => todo!(),
+            // io::ErrorKind::OutOfMemory => todo!(),
+            // io::ErrorKind::Other => todo!(),
             _ => InvokeError::RequestTimedOut,
         }
     }

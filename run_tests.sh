@@ -29,7 +29,7 @@ for INVO in "${INVOCATION_SEMANTICS[@]}"; do
         echo "Running tests with $INVO and $SIM_OMIT" >> $LOG_FILE
 
         echo "running normal server" >> $LOG_FILE
-        cargo run --bin rfs_server -- $INVO &
+        cargo run --release --bin rfs_server -- $INVO &
         SERVER_PID=$!
         cargo run --bin rfs_client -- $INVO $SIM_OMIT --test
         kill $SERVER_PID
@@ -37,9 +37,10 @@ for INVO in "${INVOCATION_SEMANTICS[@]}"; do
         echo "running faulty server" >> $LOG_FILE
         cargo run --bin rfs_server -- $INVO $SIM_OMIT &
         SERVER_PID=$!
-        cargo run --bin rfs_client -- $INVO $SIM_OMIT --test
+        cargo run --release --bin rfs_client -- $INVO $SIM_OMIT --test
         kill $SERVER_PID
 
+        sleep 0.5
     done
 
 done

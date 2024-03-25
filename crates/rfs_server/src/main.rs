@@ -38,10 +38,6 @@ async fn main() {
 
     log::info!("server listening on {}", addr);
 
-    // refactor this block of code to do the following:
-    // - based on the match conditions, create the protocol Arc only
-    // - then, create the dispatcher
-    // - finally, call dispatcher.dispatch().await
     let (protocol, use_filter): (Arc<dyn TransmissionProtocol + Send + Sync>, bool) =
         match (args.invocation_semantics, args.simulate_ommisions) {
             (args::InvocationSemantics::Maybe, Some(frac)) => {
@@ -71,80 +67,6 @@ async fn main() {
         use_filter,
     )
     .await;
-    // match (args.invocation_semantics, args.simulate_ommisions) {
-    //     (args::InvocationSemantics::Maybe, Some(frac)) => {
-    //         Dispatcher::new(
-    //             addr,
-    //             server,
-    //             Arc::new(FaultyDefaultProto::from_frac(frac)),
-    //             args.sequential,
-    //             args.request_timeout.into(),
-    //             rfs::defaults::DEFAULT_RETRIES,
-    //             false,
-    //         )
-    //         .await
-    //     }
-    //     (args::InvocationSemantics::Maybe, None) => {
-    //         Dispatcher::new(
-    //             addr,
-    //             server,
-    //             Arc::new(DefaultProto),
-    //             args.sequential,
-    //             args.request_timeout.into(),
-    //             rfs::defaults::DEFAULT_RETRIES,
-    //             false,
-    //         )
-    //         .await
-    //     }
-    //     (args::InvocationSemantics::AtLeastOnce, Some(frac)) => {
-    //         Dispatcher::new(
-    //             addr,
-    //             server,
-    //             Arc::new(FaultyRequestAckProto::from_frac(frac)),
-    //             args.sequential,
-    //             args.request_timeout.into(),
-    //             rfs::defaults::DEFAULT_RETRIES,
-    //             false,
-    //         )
-    //         .await
-    //     }
-    //     (args::InvocationSemantics::AtLeastOnce, None) => {
-    //         Dispatcher::new(
-    //             addr,
-    //             server,
-    //             Arc::new(RequestAckProto),
-    //             args.sequential,
-    //             args.request_timeout.into(),
-    //             rfs::defaults::DEFAULT_RETRIES,
-    //             false,
-    //         )
-    //         .await
-    //     }
-    //     (args::InvocationSemantics::AtMostOnce, Some(frac)) => {
-    //         Dispatcher::new(
-    //             addr,
-    //             server,
-    //             Arc::new(FaultyHandshakeProto::from_frac(frac)),
-    //             args.sequential,
-    //             args.request_timeout.into(),
-    //             rfs::defaults::DEFAULT_RETRIES,
-    //             true,
-    //         )
-    //         .await
-    //     }
-    //     (args::InvocationSemantics::AtMostOnce, None) => {
-    //         Dispatcher::new(
-    //             addr,
-    //             server,
-    //             Arc::new(HandshakeProto),
-    //             args.sequential,
-    //             args.request_timeout.into(),
-    //             rfs::defaults::DEFAULT_RETRIES,
-    //             true,
-    //         )
-    //         .await
-    //     }
-    // };
 
     // initialize callback stuffs
     FILE_UPDATE_CALLBACKS.get_or_init(|| {
@@ -157,7 +79,9 @@ async fn main() {
         }))
     });
 
-    dispatcher.dispatch().await;
+    tokio::spawn(async move { dispatcher.dispatch().await })
+        .await
+        .unwrap();
 
     return;
 }
