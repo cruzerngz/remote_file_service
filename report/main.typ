@@ -476,3 +476,25 @@ The failure rate, however miniscule, deems it unsuitable for non-idempotent oper
         "media/idem.svg",
     )
 ) <idem_overview>
+
+#place(bottom)[
+= Documentation
+Documentation for this project is included in the report.
+Private code is not included in the documentation.
+
+#figure(
+    caption: [Source code overview],
+    table(
+        align: left,
+        columns: (auto, auto),
+            [*Crate*], [*Description*],
+            link("https://github.com/cruzerngz/remote_file_service/tree/main/crates/rfs")[`rfs`], [Main library crate used by the client and server],
+            link("https://github.com/cruzerngz/remote_file_service/tree/main/crates/rfs_core")[`rfs_core`], [Core library implementations used by `rfs`],
+            link("https://github.com/cruzerngz/remote_file_service/tree/main/crates/rfs_macros")[`rfs_macros`], [Procedural macro crate for code generation],
+            link("https://github.com/cruzerngz/remote_file_service/tree/main/crates/rfs_client")[`rfs_client`], [Client executable crate],
+            link("https://github.com/cruzerngz/remote_file_service/tree/main/crates/rfs_server")[`rfs_server`], [Server executable crate],
+    )
+)
+
+Open `./doc/rfs/index.html` in a web browser to view the documentation.
+]
