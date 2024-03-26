@@ -16,6 +16,9 @@ target/
 # typst generated pdfs
 *.pdf
 
+# ready to submit proj
+project/
+
 # misc
 *.zip
 *.txt
