@@ -36,3 +36,7 @@ exe: build build-windows
 # create the submission zip file
 submit: copy report docs exe
 	zip -r project.zip project
+
+clean:
+	yes | rm -r ./project/
+	rm ./project.zip
