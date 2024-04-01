@@ -59,9 +59,10 @@
   #linebreak()
   #linebreak()
   #linebreak()
-  #linebreak()
   Ng Jia Rui: U2020777D (100%)
-  #linebreak()
+
+  Slot 31, 09:45 - 10:00
+
   #linebreak()
   SCHOOL OF COMPUTER SCIENCE AND ENGINEERING
   NANYANG TECHNOLOGICAL UNIVERSITY
