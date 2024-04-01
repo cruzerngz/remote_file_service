@@ -96,10 +96,10 @@ The following additional requirements are also implemented:
 #linebreak()
 // describe the overall design, ergonomics for a dev
 = Design
-At its core, this implementation provides various tools to abstract away the
+At its core, this implementation provides a library, `rfs`, to abstract away the
 complexity of defining and implementing a remote method invocation system.
 
-From now on, this library will be referred to as `rfs`.
+In this project, the server and client executables are compiled to 3 targets: `x86_64-windows`, `x86_64-linux`, and `aarch64-linux`. Server-client executables can interface with each other across all platforms.
 
 #linebreak()
 #figure(
@@ -145,6 +145,8 @@ The macro does the following:
 
 - Generate a client-side proxy to remotely invoke such methods
     ```rs
+    /// Generics shown for clarity
+    ///
     /// Method used by the client
     /// Function has a new ContextManager parameter
     pub async fn say_hello<T: TransmissionProtocol> ( // misc trait bounds excluded
@@ -187,7 +189,7 @@ This brings a lot of flexibility when defining custom payloads.
 ///
 /// This is an enum containing a C-style variant, a newtype variant, and a
 /// struct variant.
-/// Tuples, arrays, and maps are also supported.
+/// Tuples, arrays, and maps are all supported.
 #[derive(Serialize, Deserialize)]
 enum CustomPayload {
     Empty,
@@ -200,6 +202,7 @@ enum CustomPayload {
 }
 ```
 
+#linebreak()
 ==== Design
 There are some design considerations made for this serialization format.
 
@@ -207,7 +210,7 @@ There are some design considerations made for this serialization format.
 - All multi-byte primitives, such as numerics and floats, are serialized in big-endian, or Network Byte Order (NBO).
 - The atomic unit of data used throughout the marshalling process is a byte.
 - The data format is partially self-describing. As implementing a self-describing format is not part of the requirements of the project, some data types share the same serialization method.
-- Various byte prefixes and delimiters are used to assert the type of the data during unmarshalling. These bytes are referenced by their equivalent ASCII character. @serde_format_table describes the format with more detail.
+- Various byte prefixes and delimiters are used to assert the type of the data during unmarshalling. These bytes are referenced by their equivalent ASCII character. @serde_format_table describes the format in more detail.
 
 #figure(
     caption: [Marshalling format for common rust data types],
@@ -258,47 +261,7 @@ There are some design considerations made for this serialization format.
     )
 ) <serde_format_table>
 
-#pagebreak()
-
-// describe the simple data compression logic for this particular message format
-=== Data Compression
-Due to the way numeric types are serialized, there are opportunities to compress the data.
-Numeric types that are not 64-bit are cast to 64-bit before serializing.
-Numeric types are used to prefix the length of arrays and strings.
-
-For numeric-heavy payloads, contiguous `0` bytes can take up a large proportion of the serialized data.
-
-A simple compression algorithm is implemented to reduce the footprint of the serialized data.
-For `u8` arrays, each element is serialized directly as 8 bits without casting to 64 bits.
-This circumvents the need to perform redundant compression.
-```py
-# pseudocode
-# this compression algorithm reduces the footprint of contiguous zero bytes
-def compress(data: bytes) -> bytes:
-    compressed = []
-
-    while not data.end():
-        # find the next zero byte
-        non_zero_bytes = find_next_zero(data)
-        compressed.append(non_zero_bytes)
-
-        # count the number of consecutive zero bytes
-        num_zeros = count_zeros(data)
-
-        match num_zeroes:
-            # a compressed sequence is 3 bytes large
-            1:3 => compressed.append(number_of_zeroes(num_zeroes))
-
-            4:255 => compressed.append([BYTE_COUNT_DELIM, num_zeroes, BYTE_COUNT_DELIM])
-
-            # sequences of >256 bytes are compressed in 255-byte chunks
-            256: => compressed.append([BYTE_COUNT_DELIM, 255, BYTE_COUNT_DELIM])
-
-        data.advance(num_zeroes if num_zeros < 256 else 255)
-
-    return compressed
-```
-
+#linebreak()
 // describe the use of macros for generating/deriving middleware and other code
 == Code generation
 Due to the large amount of boilerplate code required to support the implementation of a remote interface, attribute macros are used to generate most of the code at compile-time.
@@ -319,6 +282,19 @@ There are two main parts to the middleware layer: the context manager and the di
 // describe how the context manager works
 === Context manager
 The context manager is a client-side object that communicates with the dispatcher across the network.
+
+All remote method calls require a context manager to handle the transmission and reception of requests. Additionally, the returned value is wrapped in the context manager's response type and must be handled.
+
+This accounts for any failure that might occur during payload transmission and before method invocation on the remote (timeout, remote method not found, etc.).
+```rs
+// remember that the original method returns a bool
+let resp: Result<bool, InvokeError> = SimpleOps::say_hello(&mut ctx, "Hello, world!".to_string()).await;
+
+let actual_resp = match resp {
+    Ok(val) => val,
+    Err(e: InvokeError) => {/* handle error */}
+};
+```
 
 // describe how the dispatcher works
 === Dispatch <dispatch>
@@ -365,6 +341,7 @@ def handle_payload(self, payload: bytes) -> bytes:
 === Transmission protocol <transmission_protocol>
 The dispatcher, context manager and remote objects require a transmission protocol to send and receive messages.
 ```rs
+/// Generics shown for clarity
 pub struct Dispatcher<H, T>
 where
     H: PayloadHandler,
@@ -417,6 +394,64 @@ The faulty protocols omit the transmission of packets based on a set probability
     )
 ) <protocol_table>
 
+#pagebreak()
+= Other design considerations
+
+// describe the simple data compression logic for this particular message format
+=== Data Compression
+Due to the way numeric types are serialized, there are opportunities to compress the data.
+Numeric types that are not 64-bit are cast to 64-bit before serializing.
+Numeric types are used to prefix the length of arrays and strings.
+
+For numeric-heavy payloads, contiguous `0` bytes can take up a large proportion of the serialized data.
+
+A simple compression algorithm is implemented to reduce the footprint of the serialized data.
+For `u8` arrays, each element is serialized directly as 8 bits without casting to 64 bits.
+This circumvents the need to perform redundant compression.
+```py
+# pseudocode
+# this compression algorithm reduces the footprint of contiguous zero bytes
+def compress(data: bytes) -> bytes:
+    compressed = []
+
+    while not data.end():
+        # find the next zero byte
+        non_zero_bytes = find_next_zero(data)
+        compressed.append(non_zero_bytes)
+
+        # count the number of consecutive zero bytes
+        num_zeros = count_zeros(data)
+
+        match num_zeroes:
+            # a compressed sequence is 3 bytes large
+            1:3 => compressed.append(number_of_zeroes(num_zeroes))
+
+            4:255 => compressed.append([BYTE_COUNT_DELIM, num_zeroes, BYTE_COUNT_DELIM])
+
+            # sequences of >256 bytes are compressed in 255-byte chunks
+            256: => compressed.append([BYTE_COUNT_DELIM, 255, BYTE_COUNT_DELIM])
+
+        data.advance(num_zeroes if num_zeros < 256 else 255)
+
+    return compressed
+```
+
+== Server-side file access
+The server mounts to a prescribed directory, where clients are granted full access to the directory and its contents.
+
+To prevent file access violations, the server rejects any requests to access files outside the mounted directory.
+
+```rs
+// accesses outside the mounted directory are rejected
+let file = PrimitiveFsOps::create("../../../etc/passwd").await?;
+assert!(matches(file, Err(_)));
+
+// accesses within the mounted directory are allowed
+let file = PrimitiveFsOps::create("passwd").await?;
+assert!(matches(file, Ok(_)));
+```
+
+#pagebreak()
 = Experiments
 The experiments described below aim to determine the success and correctness of the protocols defined in @protocol_table. The primary goals are to:
 - Determine the success rate of each protocol (e.g. a value is returned from the remote after a request is sent)
@@ -442,10 +477,10 @@ The control experiment will be run with a reliability of $100%$, but shown with 
 For experiment results with no detected failures, the measured failure rate will be substituted as "six nines", or $-6$ in the `log_*_rate` axes.
 
 == Results
-In the control experiment, all protocols perform as expected. There are occasional errors in `RequestAckProto` and `HandshakeProto`, which can be attributed to the high rate of repetition when administering method calls. The baseline failure rate of each protocol are below $0.01%$.
+In the control experiment, all protocols perform as expected. There are occasional errors in `RequestAckProto` and `HandshakeProto`, which can be attributed to the high rate of repetition when administering method calls. The baseline failure rate of each protocol is below $0.01%$.
 `HandshakeProto` has a worst-case log-mean failure rate of $10^"-4.5" = 0.003%$.
 This is an order of magnitude greater than the failure rate of `RequestAckProto`, which has a log-mean failure rate of $10^"-5.3" = 0.0005%$.
-This failure rate is also an artifact of testing, as rates below $0.01%$ will cause a test termination after $10,000$ iterations.
+This failure rate is also an artifact of testing, as rates below $0.01%$ (one recorded error) will cause a test termination after $10,000$ iterations.
 
 From the data shown in @plot_overview, a network failure in the remote strongly correlates with the observed failure rate of each protocol.
 Network failures on the client do not have as strong of an effect on the failure rate.
@@ -454,8 +489,9 @@ However, due to the number of intermediate data transmissions required to ensure
 After compensating for the baseline failure rates observed in the control in @comp_overview, `HandshakeProto` is determined to be more reliable than `RequestAckProto`. `DefaultProto` remains the most fault-prone protocol.
 Note that in @comp_overview, the only basis of comparison are the relative failure rates between each protocol.
 
-`RequestAckProto` is also the only protocol to encounter non-idempotent violations, as shown in @idem_overview.
-The failure rate, however miniscule, deems it unsuitable for non-idempotent operations.
+`RequestAckProto` is the only protocol to encounter non-idempotent violations, as shown in @idem_overview. It shows that with at-least-once invocation semantics, an omission from the remote can cause the same request to be executed repeatedly.
+
+The failure rate, however miniscule, makes `RequestAckProto` unsuitable for non-idempotent operations.
 
 #figure(
     caption: [Overview of failure rates for each protocol. The larger dots in the control plot represent the log-mean failure rate.],
@@ -482,6 +518,7 @@ The failure rate, however miniscule, deems it unsuitable for non-idempotent oper
 = Documentation
 Documentation for this project is included in the report.
 Private code is not included in the documentation.
+Open `./doc/rfs/index.html` in a web browser to view the documentation.
 
 #figure(
     caption: [Source code overview],
@@ -496,6 +533,4 @@ Private code is not included in the documentation.
             link("https://github.com/cruzerngz/remote_file_service/tree/main/crates/rfs_server")[`rfs_server`], [Server executable crate],
     )
 )
-
-Open `./doc/rfs/index.html` in a web browser to view the documentation.
 ]
