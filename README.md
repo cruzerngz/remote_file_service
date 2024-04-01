@@ -9,6 +9,8 @@ cargo r --bin rfs_server # run server
 
 cargo r --bin rfs_client -- --help # view help
 cargo r --bin rfs_server -- --help # view help
+
+make report # build report
 ```
 
 ## Overview
@@ -24,7 +26,7 @@ As the project imposes restrictions on what types of libraries can be used,
 the following protocols/stuff is custom:
 - arbitrary serialization/deserialization
 - request/reply formats
-- proc-macro RPC, inspired by [`tarpc`](https://github.com/google/tarpc)
+- proc-macro boilerplate code generation, inspired by [`tarpc`](https://github.com/google/tarpc)
 
 
 ## Common errors
