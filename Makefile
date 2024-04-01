@@ -28,7 +28,7 @@ report: copy
 	typst compile report/main.typ project/report.pdf
 
 docs: copy
-	cargo doc
+	cargo doc --no-deps
 	cp -r target/doc project/
 
 exe: build build-windows build-aarch64
