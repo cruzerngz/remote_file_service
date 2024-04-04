@@ -42,6 +42,11 @@ pub struct ClientArgs {
     #[clap(long, value_name = "N")]
     pub simulate_ommisions: Option<u32>,
 
+    /// Client local cache lifetime
+    #[clap(long)]
+    #[clap(default_value = "1m")]
+    pub freshness_interval: humantime::Duration,
+
     /// Start the client in test mode.
     /// This mode checks for general runtime stability and
     /// the reliability of each transmission protocol.

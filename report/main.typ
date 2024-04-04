@@ -14,6 +14,18 @@
   )[#text(size: 0.8em)[#code]]
 }
 
+// for inline code formatting
+#show raw.where(lang: "rust"): code => {
+  block(
+    // fill: luma(247),
+    // radius: 3pt,
+    outset: 5pt,
+    // stroke: gray,
+    breakable: false,
+    width: 100%, // does this look nice?
+  )[#text(size: 0.8em)[#code]]
+}
+
 // pseudo code formatting
 #show raw.where(lang: "py"): code => {
   block(
@@ -86,6 +98,7 @@ This course project consists of the following requirements:
 2. Implement marshalling and unmarshalling of messages
 3. Implement a request-reply protocol
 4. Implement various invocation semantics (at-most-once, at-least-once, maybe)
+5. Client-side file caching, one-copy semantics
 
 The following additional requirements are also implemented:
 1. In-flight data compression
@@ -98,6 +111,8 @@ The following additional requirements are also implemented:
 = Design
 At its core, this implementation provides a library, `rfs`, to abstract away the
 complexity of defining and implementing a remote method invocation system.
+
+`rfs` builds on the abstractions provided in `rfs_core`, such that new interfaces and methods can be defined and implemented with minimal boilerplate.
 
 In this project, the server and client executables are compiled to 3 targets: `x86_64-windows`, `x86_64-linux`, and `aarch64-linux`. Server-client executables can interface with each other across all platforms.
 
@@ -389,10 +404,77 @@ The faulty protocols omit the transmission of packets based on a set probability
                 This implementation includes timeouts and retries to ensure the remote receives the packet at least once.
             ],
             [At-most-once], [`HandshakeProto`], [`FaultyHandshakeProto`], [
-                To completely fulfill at-most-once semantics, the dispatcher is also configured to filter duplicate requests. The protocol also supports the transmission of arbitrary sized payloads.
+                To completely fulfill at-most-once semantics, the dispatcher is also configured to filter duplicate requests. The protocol also supports the transmission of arbitrary sized payloads (e.g. payloads larger than 65535 bytes).
             ],
     )
 ) <protocol_table>
+
+= Library overview
+The `rfs` library provides virtual file objects that emulate the interfaces provided by Rusts `std::fs` module.
+
+#figure(
+    caption: [Some standard library functions and objects and their `rfs` equivalents],
+    table(
+        align: left,
+        columns: (auto, auto, auto),
+        [*`std`*],[*`rfs`*],[*purpose*],
+        [```rust read_to_string(path: P)```], [```rust read_to_string(ctx: ContextManager, path: P)```],[Short form for opening a file, reading and closing a file],
+        [```rust File```], [```rust VirtFile```],[File object],
+        // openoptions
+        [```rust OpenOptions```], [```rust VirtOpenOptions```],[File open options builder],
+        // DirEntry
+        [```rust DirEntry```], [```rust VirtDirEntry```],[An entry in a directory],
+        // ReadDir
+        [```rust ReadDir```], [```rust VirtReadDir```],[An iterator over `DirEntry` when reading a directory],
+        // [```rust io::Error```], [```rust VirtIOError```],[Equivalent error type],
+    )
+)
+
+In this library, a user does not invoke remote methods directly. Instead, the library provides abstractions so that the user interacts with the remote through a virtual representation of filesystem objects.
+
+Each object makes a one or more remote method calls to the server to perform a file operation.
+From a user's perspective, the `rfs::fs` can be taken as a drop-in replacement for `std::fs`.
+
+```rs
+// `await` operator needs to be used for every asynchronous function call.
+#[tokio::main]
+async fn main() -> io::Result<()> {
+    // vars assumed to be initialized
+    let mut ctx = ContextManager::new(source, target, timeout, retries, protocol).await?;
+
+    let mut v_file = VirtFile::open(ctx, "file.txt").await?;
+
+    // read and allocate bytes into a vector
+    let file_contents = v_file.read_bytes().await?;
+
+    // register a callback in a remote and blocks until the file contents are modified
+    let updated_contents = v_file.watch().await?;
+
+    // access the locally cached file contents
+    let cached_contents = v_file.load_cache();
+
+    // read the directory and print the entries
+    let dir_entries = rfs::fs::read_dir("./some_directory").await?;
+    for entry in dir_entries {
+        println!("{:?}", entry);
+    }
+}
+```
+
+#figure(
+    caption: [Additional file system operations/services provided by `rfs`],
+    table(
+        align: left,
+        columns: (auto, auto, auto),
+        [*operation*], [*type*], [*description*],
+        [`read_dir`], [Idempotent], [Read all entries (files and subdirectories) inside the specified directory],
+        [`remove`],[Idempotent], [Remove a file or directory permanently],
+        [`create`],[Idempotent], [Create a file],
+        [`write_append_bytes`], [Non-idempotent], [Append bytes to the end of a file]
+        // [`rename`],[Idempotent], [Rename a file or directory],
+
+    )
+)
 
 #pagebreak()
 = Other design considerations
@@ -436,19 +518,19 @@ def compress(data: bytes) -> bytes:
     return compressed
 ```
 
-== Server-side file access
+=== Access violations
 The server mounts to a prescribed directory, where clients are granted full access to the directory and its contents.
 
 To prevent file access violations, the server rejects any requests to access files outside the mounted directory.
 
 ```rs
 // accesses outside the mounted directory are rejected
-let file = PrimitiveFsOps::create("../../../etc/passwd").await?;
-assert!(matches(file, Err(_)));
+let op_result = PrimitiveFsOps::create("../../../etc/passwd").await?;
+assert!(matches!(op_result, Err(_)));
 
 // accesses within the mounted directory are allowed
-let file = PrimitiveFsOps::create("passwd").await?;
-assert!(matches(file, Ok(_)));
+let op_result = PrimitiveFsOps::create("passwd").await?;
+assert!(matches!(op_result, Ok(_)));
 ```
 
 #pagebreak()
@@ -484,7 +566,7 @@ This failure rate is also an artifact of testing, as rates below $0.01%$ (one re
 
 From the data shown in @plot_overview, a network failure in the remote strongly correlates with the observed failure rate of each protocol.
 Network failures on the client do not have as strong of an effect on the failure rate.
-However, due to the number of intermediate data transmissions required to ensure at-most-once semantics, the protocol experiences the same failure rate as other protocols at low log inverse probabilities, $1 / 10^N$ of $N = {1, 2, 3}$.
+However, due to the number of intermediate data transmissions required to ensure at-most-once semantics, `HandshakeProto` experiences the same failure rate as other protocols at low log inverse probabilities, $1 / 10^N$ where $N = {1, 2, 3}$.
 
 After compensating for the baseline failure rates observed in the control in @comp_overview, `HandshakeProto` is determined to be more reliable than `RequestAckProto`. `DefaultProto` remains the most fault-prone protocol.
 Note that in @comp_overview, the only basis of comparison are the relative failure rates between each protocol.
@@ -519,6 +601,9 @@ The failure rate, however miniscule, makes `RequestAckProto` unsuitable for non-
 Documentation for this project is included in the report.
 Private code is not included in the documentation.
 Open `./doc/rfs/index.html` in a web browser to view the documentation.
+
+The source code is located in `./code/`. Compiled executables are located in `./bin/`.
+To build from source, follow the readme in `./code/README.md`.
 
 #figure(
     caption: [Source code overview],
