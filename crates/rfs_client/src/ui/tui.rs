@@ -81,6 +81,7 @@ pub struct UIWindows {
 
 #[derive(Clone, Debug)]
 pub enum AppEvent {
+    /// First event sent is init
     Init,
     Quit,
     Error,
@@ -93,6 +94,15 @@ pub enum AppEvent {
     Key(KeyEvent),
     Mouse(MouseEvent),
     Resize(u16, u16),
+}
+
+/// If a widget can be in focus, it should implement this trait.
+///
+/// Focused widget should visually distinguish itself from other widgets.
+/// In the case for all widgets implementting this trait, their borders will be bolded.
+pub trait FocusedWidget {
+    /// Toggle focus for a widget
+    fn focus(&mut self, selected: bool);
 }
 
 /// Initialize the terminal
@@ -455,9 +465,11 @@ mod tests {
 
         let mut content_widget = ContentWindow::new();
         content_widget.set_cursor_pos(Some((0, 0)));
-        content_widget.set_notification(Some("hello world from the notifications!"));
-        content_widget.set_error_message(Some("this is an error message AHHHHH"));
+        // content_widget.set_notification(Some("hello world from the notifications!"));
+        // content_widget.set_error_message(Some("this is an error message AHHHHH"));
         let mut content_highlight_offset = 0;
+
+        let mut focus_toggle = false;
 
         loop {
             // wait for a crossterm keypress
@@ -477,6 +489,11 @@ mod tests {
                 }
 
                 fs_tree.select(Some(fs_selection));
+
+                // toggle select/deselect on fs and content widgets
+                focus_toggle = !focus_toggle;
+                fs_tree.focus(focus_toggle);
+                content_widget.focus(!focus_toggle);
 
                 terminal.draw(|frame| {
                     let windows = UIWindows::from(frame.borrow());

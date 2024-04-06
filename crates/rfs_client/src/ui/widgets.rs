@@ -19,7 +19,7 @@ use rfs::{
     ser_de::de,
 };
 
-use super::Ui;
+use super::{tui::FocusedWidget, Ui};
 
 /// Default block used for UI elements
 pub const DEFAULT_BLOCK: Block = Block::new().borders(Borders::ALL);
@@ -46,6 +46,9 @@ pub struct FsTree {
 
     /// Current selection, if any
     selection: Option<usize>,
+
+    /// Render the widget with a brighter border when focused
+    focused: bool,
 }
 
 /// Error log widget.
@@ -91,6 +94,9 @@ pub struct ContentWindow {
 
     /// Error messages are displayed over the main contents like a pop-up.
     error_message: Option<String>,
+
+    /// Render the widget with a brighter border when focused
+    focused: bool,
 }
 
 impl Widget for TitleBar {
@@ -207,16 +213,21 @@ impl Widget for FsTree {
 
         let para = Paragraph::new(lines)
             .block(
-                DEFAULT_BLOCK.title(
-                    Title::from(
-                        self.parent_dir
-                            .to_str()
-                            .expect("invalid path")
-                            .bold()
-                            .gray(),
+                DEFAULT_BLOCK
+                    .title(
+                        Title::from(
+                            self.parent_dir
+                                .to_str()
+                                .expect("invalid path")
+                                .bold()
+                                .gray(),
+                        )
+                        .alignment(ratatui::layout::Alignment::Left),
                     )
-                    .alignment(ratatui::layout::Alignment::Left),
-                ),
+                    .border_style(match self.focused {
+                        true => Style::new().white(),
+                        false => Style::new().gray(),
+                    }),
             )
             .wrap(Wrap { trim: false });
 
@@ -316,9 +327,15 @@ impl Widget for ContentWindow {
         // clear the area first
         Clear.render(area, buf);
 
+        let border_style = match self.focused {
+            true => Style::new().white(),
+            false => Style::new().gray(),
+        };
+        let border = DEFAULT_BLOCK.border_style(border_style);
+
         let main_para = match (self.contents, self.cursor_pos, self.highlight) {
             // render a blank screen
-            (None, _, _) => Paragraph::default().block(DEFAULT_BLOCK),
+            (None, _, _) => Paragraph::default().block(border),
 
             // render contents w/ line numbers
             (Some(contents), None, None) => {
@@ -343,7 +360,7 @@ impl Widget for ContentWindow {
                         })
                         .collect::<Vec<_>>(),
                 )
-                .block(DEFAULT_BLOCK)
+                .block(border)
             }
             // highlight some text
             (Some(contents), cursor_opt, Some((h_start, h_len))) => {
@@ -363,7 +380,7 @@ impl Widget for ContentWindow {
                     None => Box::new(res.into_iter()),
                 };
 
-                Paragraph::new(rendered_lines.collect::<Vec<_>>()).block(DEFAULT_BLOCK)
+                Paragraph::new(rendered_lines.collect::<Vec<_>>()).block(border)
                 // todo!()
             }
 
@@ -433,14 +450,14 @@ impl Widget for ContentWindow {
                 let rendered_lines = fit_lines_to_window(lines, cursor_y, area.height, true, 2);
 
                 Paragraph::new(rendered_lines.collect::<Vec<_>>())
-                    .block(DEFAULT_BLOCK)
+                    .block(border)
                     .wrap(Wrap { trim: false })
             }
         };
 
         main_para.render(area, buf);
 
-        // notifications are written to the title border
+        // notifications are written to the title border and override the border colour
         if let Some(notif) = self.notification {
             let notif_block = DEFAULT_BLOCK
                 .borders(Borders::ALL)
@@ -473,6 +490,18 @@ impl Widget for ContentWindow {
     }
 }
 
+impl FocusedWidget for FsTree {
+    fn focus(&mut self, selected: bool) {
+        self.focused = selected;
+    }
+}
+
+impl FocusedWidget for ContentWindow {
+    fn focus(&mut self, selected: bool) {
+        self.focused = selected;
+    }
+}
+
 impl TitleBar {
     pub fn new() -> Self {
         Self { title: None }
@@ -490,6 +519,7 @@ impl FsTree {
             parent_dir: PathBuf::new(),
             entries: Vec::new(),
             selection: None,
+            focused: false,
         }
     }
 
@@ -563,6 +593,12 @@ impl AvailableCommands {
     }
 
     /// Add a bunch of commands to the list
+    ///
+    /// ```ignore
+    /// let mut commands = AvailableCommands::new();
+    ///
+    /// commands.add([("q", "quit"), ("h", "help")]);
+    /// ```
     pub fn add<C: IntoIterator<Item = (K, V)>, K: ToString, V: ToString>(&mut self, commands: C) {
         let modified = commands
             .into_iter()
@@ -585,6 +621,7 @@ impl ContentWindow {
             highlight: None,
             notification: None,
             error_message: None,
+            focused: false,
         }
     }
 
