@@ -320,8 +320,9 @@ impl VirtFile {
         Ok(size)
     }
 
-    /// Blocks until the file is updated. The new file contents are returned.
-    pub async fn watch(&mut self) -> io::Result<Vec<u8>> {
+    /// Blocks until the file is updated. The new file contents are returned,
+    /// as well as the update information.
+    pub async fn watch(&mut self) -> io::Result<(Vec<u8>, FileUpdate)> {
         // this is the return socket the remote will send callbacks to
         let ret_sock = self.ctx.generate_socket().await?;
 
@@ -342,9 +343,9 @@ impl VirtFile {
         let update: FileUpdate = deserialize_packed(&resp)
             .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, "deserialization failed"))?;
 
-        self.local_buf = update.update_file(&self.local_buf);
+        self.local_buf = update.clone().update_file(&self.local_buf);
 
-        Ok(self.local_buf.clone())
+        Ok((self.local_buf.clone(), update))
     }
 }
 
