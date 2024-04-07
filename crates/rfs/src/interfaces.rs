@@ -73,7 +73,7 @@ pub trait PrimitiveFsOps {
     /// Create a directory.
     async fn mkdir(path: String) -> Result<(), VirtIOErr>;
 
-    /// Remove a directory.
+    /// Remove a directory and all of its contents.
     async fn rmdir(path: String) -> Result<(), VirtIOErr>;
 
     /// Read the contents of a directory

@@ -61,6 +61,57 @@ pub async fn read_dir<P: AsRef<Path>>(
     Ok(VirtReadDir::from(entries))
 }
 
+/// Create a new directory at the specified path.
+pub async fn create_dir<P: AsRef<Path>>(
+    mut ctx: rfs_core::middleware::ContextManager,
+    path: P,
+) -> io::Result<()> {
+    PrimitiveFsOpsClient::mkdir(
+        &mut ctx,
+        path.as_ref()
+            .to_str()
+            .and_then(|s| Some(s.to_owned()))
+            .unwrap_or_default(),
+    )
+    .await
+    .map_err(|e| io::Error::from(e))?
+    .map_err(|e| io::Error::from(e))
+}
+
+/// Delete a directory and all of its contents.
+pub async fn remove_dir<P: AsRef<Path>>(
+    mut ctx: rfs_core::middleware::ContextManager,
+    path: P,
+) -> io::Result<()> {
+    PrimitiveFsOpsClient::rmdir(
+        &mut ctx,
+        path.as_ref()
+            .to_str()
+            .and_then(|s| Some(s.to_owned()))
+            .unwrap_or_default(),
+    )
+    .await
+    .map_err(|e| io::Error::from(e))?
+    .map_err(|e| io::Error::from(e))
+}
+
+/// Delete a file
+pub async fn remove_file<P: AsRef<Path>>(
+    mut ctx: rfs_core::middleware::ContextManager,
+    path: P,
+) -> io::Result<()> {
+    PrimitiveFsOpsClient::remove(
+        &mut ctx,
+        path.as_ref()
+            .to_str()
+            .and_then(|s| Some(s.to_owned()))
+            .unwrap_or_default(),
+    )
+    .await
+    .map_err(|e| io::Error::from(e))?
+    .map_err(|e| io::Error::from(e))
+}
+
 mod testing {
 
     use std::fs;

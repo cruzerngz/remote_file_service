@@ -280,7 +280,7 @@ impl VirtFile {
     }
 
     /// Returns the virtual file path as a string
-    fn as_path(&self) -> String {
+    pub fn as_path(&self) -> String {
         self.path
             .to_str()
             .and_then(|s| Some(s.to_owned()))

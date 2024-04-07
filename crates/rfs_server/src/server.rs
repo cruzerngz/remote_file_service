@@ -278,10 +278,26 @@ impl PrimitiveFsOps for RfsServer {
     }
 
     async fn mkdir(&mut self, path: String) -> Result<(), VirtIOErr> {
-        todo!()
+        let full_path = match self.resolve_path(&path) {
+            Some(p) => p,
+            None => return Err(VirtIOErr::PermissionDenied),
+        };
+
+        match fs::create_dir(full_path) {
+            Ok(_) => Ok(()),
+            Err(e) => Err(e.into()),
+        }
     }
     async fn rmdir(&mut self, path: String) -> Result<(), VirtIOErr> {
-        todo!()
+        let full_path = match self.resolve_path(&path) {
+            Some(p) => p,
+            None => return Err(VirtIOErr::PermissionDenied),
+        };
+
+        match std::fs::remove_dir_all(full_path) {
+            Ok(_) => Ok(()),
+            Err(e) => Err(e.into()),
+        }
     }
 
     async fn read_dir(&mut self, path: String) -> Vec<VirtDirEntry> {
