@@ -7,7 +7,7 @@ use std::time::Duration;
 use std::{collections::HashMap, default, io};
 
 use async_trait::async_trait;
-use crossterm::event::{KeyCode, KeyEvent, KeyEventKind};
+use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use rfs::fs::VirtFile;
 use rfs::fsm::TransitableState;
 use rfs::interfaces::FileUpdate;
@@ -102,12 +102,14 @@ pub struct AppData {
     content: Option<String>,
 
     /// Cursor position in the contents widget
-    contents_pos: Option<usize>,
+    cursor_pos: Option<usize>,
 
     /// A continuous unbroken string sequence that has not been written to the file.
     ///
-    /// Offset is taken from contents_pos
+    /// Offset is taken from unsaved_offset
     unsaved_buf: String,
+
+    unsaved_offset: usize,
 
     /// Error message to overlay on the screen
     err_msg: Option<String>,
@@ -277,13 +279,15 @@ impl App {
 
         // tui.draw(f);
         while let Some(event) = tui.next().await {
+            // log::info!("received event: {:?}", event);
+
             match event {
                 AppEvent::Init => {
                     // asd
                     self.init(&mut tui).await;
 
                     // render the result
-                    tui.event_tx.send(AppEvent::Render).unwrap();
+                    // tui.event_tx.send(AppEvent::Render).unwrap();
                 }
                 AppEvent::Quit => {
                     tui.stop();
@@ -304,7 +308,9 @@ impl App {
                 AppEvent::Key(key_event) => {
                     self.data
                         .handle_app_state(&mut self.state, key_event, &mut tui)
-                        .await
+                        .await;
+
+                    // tui.event_tx.send(AppEvent::Render).unwrap();
                 }
                 AppEvent::Mouse(_) => (),
                 AppEvent::SetContentNotification(notif) => {
@@ -377,7 +383,7 @@ impl App {
 
     /// Initialize the app by populating the curdir and setting the initial state
     pub async fn init(&mut self, tui: &mut Tui) {
-        self.state = AppState::OnFileSystem;
+        self.state = AppState::InFileSystem(Default::default());
 
         let start_dir_entry = rfs::fs::read_dir(self.data.ctx.clone(), ".").await.unwrap();
 
@@ -386,144 +392,7 @@ impl App {
             .push((".".to_string(), start_dir_entry.clone()));
 
         tui.fs_widget.push(start_dir_entry, ".");
-    }
-
-    // main entry point for keyboard interaction
-    // no longer used, see `impl AppData`.
-    async fn handle_key_event(&mut self, key_event: KeyEvent, tui: &mut Tui) {
-        // match self.state {
-        //     AppState::OnContent | AppState::InContent => {
-        //         self.handle_content_key_event(key_event, tui).await
-        //     }
-        //     AppState::OnFileSystem | AppState::InFileSystem => {
-        //         self.handle_fs_tree_key_event(key_event, tui).await
-        //     }
-        // }
-    }
-
-    /// Handle key events when in or on the fstree widget
-    async fn handle_fs_tree_key_event(&mut self, key_event: KeyEvent, tui: &mut Tui) {
-        let app_ev = AppEvents::try_from(key_event).ok();
-
-        match self.state {
-            // only enter key can trainsition this state
-            AppState::OnFileSystem => {}
-
-            // AppState::InFileSystem => {
-            //     let dir = match self.fs_dirs.top() {
-            //         Some(d) => d,
-            //         None => return,
-            //     };
-
-            //     match key_event.code {
-            //         KeyCode::Enter => {
-            //             let dir_entry = match dir.1.get(self.filesystem_pos) {
-            //                 Some(entry) => entry,
-            //                 None => {
-            //                     self.filesystem_pos = 0;
-            //                     return;
-            //                 }
-            //             };
-            //         }
-
-            //         KeyCode::Up => {
-            //             self.filesystem_pos = self.filesystem_pos.saturating_sub(1);
-            //         }
-            //         KeyCode::Down => {
-            //             // saturating add against dir index
-            //             self.filesystem_pos = match dir.1.get(self.filesystem_pos + 1) {
-            //                 Some(_) => self.filesystem_pos + 1,
-            //                 None => self.filesystem_pos,
-            //             };
-            //         }
-
-            //         KeyCode::Char(FS_CREATE_FILE) => {
-            //             let x = FS_CREATE_DIR;
-            //         }
-
-            //         KeyCode::Char(FS_CREATE_DIR) => {
-            //             let x = FS_CREATE_DIR;
-            //         }
-
-            //         _ => todo!(),
-            //     }
-            // }
-            _ => unimplemented!(),
-        }
-
-        if let Some(ev) = app_ev {
-            // log::debug!("ingesting event: {:?}", ev);
-            // self.state.ingest(ev);
-        }
-    }
-
-    /// Handle key events when in or on the content widget
-    async fn handle_content_key_event(&mut self, key_event: KeyEvent, tui: &mut Tui) {
-        let app_ev = AppEvents::try_from(key_event).ok();
-
-        // match self.state {
-        //     // only enter key can transition state
-        //     AppState::OnContent => {
-        //         tui.fs_widget.select(None);
-
-        //         match (&mut self.v_file, self.contents_pos) {
-        //             (None, None) => (),
-        //             (None, Some(_)) => self.contents_pos = None,
-        //             (Some(_), None) => (),
-        //             // write contents to file
-        //             (Some(v_f), Some(pos)) => {
-        //                 let update =
-        //                     FileUpdate::Insert((pos, self.unsaved_buf.as_bytes().to_vec()));
-
-        //                 match v_f.write_bytes(update).await {
-        //                     Ok(num_bytes) => {
-        //                         self.unsaved_buf.clear();
-        //                         Self::show_notification(
-        //                             format!("wrote {} bytes to {}", num_bytes, v_f.as_path()),
-        //                             Duration::from_secs(1),
-        //                             tui,
-        //                         );
-        //                         // self.contents_pos = None;
-        //                     }
-        //                     Err(e) => {
-        //                         log::error!("error writing to file: {:?}", e);
-        //                         tui.event_tx
-        //                             .send(crate::ui::tui::AppEvent::Error(e.to_string()))
-        //                             .unwrap();
-        //                     }
-        //                 };
-        //             }
-        //         }
-        //     }
-        //     AppState::InContent => {
-        //         tui.fs_widget.select(Some(self.filesystem_pos));
-
-        //         match key_event.code {
-        //             crossterm::event::KeyCode::Backspace => {
-        //                 self.unsaved_buf.pop();
-        //             }
-        //             crossterm::event::KeyCode::Enter => self.unsaved_buf.push('\n'),
-        //             // no navi when in insert mode
-        //             crossterm::event::KeyCode::Left
-        //             | crossterm::event::KeyCode::Right
-        //             | crossterm::event::KeyCode::Up
-        //             | crossterm::event::KeyCode::Down => (),
-        //             crossterm::event::KeyCode::Delete => {
-        //                 self.unsaved_buf.pop();
-        //             }
-        //             crossterm::event::KeyCode::Char(c) => self.unsaved_buf.push(c),
-        //             // no handler for the rest
-        //             _ => (),
-        //         }
-        //     }
-        //     _ => unimplemented!("state not handled in this method"),
-        // }
-
-        // // perform any state transitions
-        // if let Some(ev) = app_ev {
-        //     log::debug!("ingesting event: {:?}", ev);
-        //     self.state.ingest(ev);
-        // }
+        tui.in_filesystem();
     }
 
     /// Show a notification message on the content window for a specified duration,
@@ -573,8 +442,9 @@ impl AppData {
             v_file_history: Default::default(),
             v_file: None,
             content: None,
-            contents_pos: None,
+            cursor_pos: None,
             unsaved_buf: Default::default(),
+            unsaved_offset: 0,
             err_msg: None,
         }
     }
@@ -587,70 +457,35 @@ impl AppData {
         tui: &mut Tui,
     ) {
         match app_state {
-            AppState::OnContent => {
-                tui.fs_widget.focus(false);
-                tui.content_widget.focus(true);
-                tui.commands_widget.clear();
-                tui.commands_widget.add([
-                    ("ENTER", "enter insert mode"),
-                    ("LEFT", "filesystem tree"),
-                    ("arrow keys", "navigate"),
-                    ("w", "watch file for changes"),
-                ]);
-                match app_ev.code {
-                    KeyCode::Enter => {
-                        *app_state = AppState::InContent(ContentState::default());
-                    }
-                    KeyCode::Left => {
-                        *app_state = AppState::OnFileSystem;
-                    }
-                    _ => (),
+            AppState::OnContent => match app_ev.code {
+                KeyCode::Enter => {
+                    *app_state = AppState::InContent(ContentState::default());
+                    tui.in_content_navi();
                 }
-            }
+                KeyCode::Left => {
+                    *app_state = AppState::OnFileSystem;
+                    tui.on_filesystem();
+                }
+                _ => (),
+            },
             AppState::InContent(_) => {
-                tui.fs_widget.focus(false);
-                tui.content_widget.focus(true);
-                tui.commands_widget.clear();
-                tui.commands_widget
-                    .add([("ESC", "exit insert mode and save changes")]);
                 self.handle_content_state(app_state, app_ev, tui).await;
             }
-            AppState::OnFileSystem => {
-                tui.content_widget.focus(false);
-                tui.fs_widget.focus(true);
-                tui.commands_widget.clear();
-                tui.commands_widget.add([
-                    ("ESC", "exit"),
-                    ("ENTER", "enter filesystem browse"),
-                    ("RIGHT", "go to content"),
-                ]);
-
-                match app_ev.code {
-                    KeyCode::Esc => {
-                        tui.event_tx.send(AppEvent::Quit).unwrap();
-                    }
-                    KeyCode::Enter => {
-                        *app_state = AppState::InFileSystem(FsState::default());
-                    }
-                    KeyCode::Right => {
-                        *app_state = AppState::OnContent;
-                    }
-                    _ => (),
+            AppState::OnFileSystem => match app_ev.code {
+                KeyCode::Esc => {
+                    tui.event_tx.send(AppEvent::Quit).unwrap();
                 }
-            }
+                KeyCode::Enter => {
+                    *app_state = AppState::InFileSystem(FsState::default());
+                    tui.in_filesystem();
+                }
+                KeyCode::Right => {
+                    *app_state = AppState::OnContent;
+                    tui.on_content();
+                }
+                _ => (),
+            },
             AppState::InFileSystem(_) => {
-                tui.content_widget.focus(false);
-                tui.fs_widget.focus(true);
-                tui.commands_widget.clear();
-                tui.commands_widget.add([
-                    ("ESC", "exit filesystem browse"),
-                    ("ENTER", "enter file/dir"),
-                    ("BACKSPACE", "go to parent dir"),
-                    ("UP/DOWN", "navigate"),
-                    ("f", "create file"),
-                    ("d", "create directory"),
-                    ("x", "delete file/dir"),
-                ]);
                 self.handle_fs_state(app_state, app_ev, tui).await;
             }
         }
@@ -672,6 +507,8 @@ impl AppData {
             FsState::Navigate => match app_ev.code {
                 KeyCode::Esc => {
                     *app_state = AppState::OnFileSystem;
+                    tui.on_filesystem();
+                    return;
                 }
                 KeyCode::Enter => {
                     let top_dir_entry = self.fs_dirs.top().cloned();
@@ -687,6 +524,36 @@ impl AppData {
                     match dir_entry.is_file() {
                         // open file
                         true => {
+                            let path = dir_entry.path.clone();
+
+                            let v_file = match self.v_file_history.get(path.as_str()) {
+                                Some(v_file) => v_file.clone(),
+                                None => {
+                                    let v_file = match VirtFile::open(self.ctx.clone(), &path).await
+                                    {
+                                        Ok(vf) => Arc::new(Mutex::new(vf)),
+                                        Err(e) => {
+                                            log::error!("virtual file open error: {:?}", e);
+                                            return;
+                                        }
+                                    };
+                                    self.v_file_history.insert(path, v_file.clone());
+
+                                    v_file
+                                }
+                            };
+
+                            self.v_file = Some(v_file.clone());
+                            self.content = Some(
+                                std::str::from_utf8(v_file.lock().await.local_cache())
+                                    .unwrap()
+                                    .to_string(),
+                            );
+                            tui.content_widget
+                                .set_contents(Some(self.content.clone().unwrap_or_default()));
+                            tui.content_widget.set_cursor_pos(Some((0, 0)));
+                            *app_state = AppState::InContent(Default::default());
+                            tui.in_content_navi();
 
                             //
                         }
@@ -711,19 +578,24 @@ impl AppData {
                     }
                 }
                 /// Go up one dir (if possible)
-                KeyCode::Backspace => {
-                    match self.fs_dirs.depth() > 1 {
-                        true => {
-                            self.fs_dirs.pop();
-                            self.filesystem_pos = 0;
-                            tui.fs_widget.pop();
+                KeyCode::Backspace => match self.fs_dirs.depth() > 1 {
+                    true => {
+                        self.fs_dirs.pop();
+                        tui.fs_widget.pop();
 
-                            // TODO: perform a read dir call
-                            tui.fs_widget.select(Some(self.filesystem_pos));
-                        }
-                        false => (),
+                        let dir_path = self.fs_dirs.pop().unwrap();
+                        let read_dir = rfs::fs::read_dir(self.ctx.clone(), dir_path.0.clone())
+                            .await
+                            .unwrap();
+
+                        self.fs_dirs.push((dir_path.0.clone(), read_dir.clone()));
+                        tui.fs_widget.update(read_dir);
+
+                        self.filesystem_pos = 0;
+                        tui.fs_widget.select(Some(self.filesystem_pos));
                     }
-                }
+                    false => (),
+                },
                 KeyCode::Up => {
                     self.filesystem_pos = self.filesystem_pos.saturating_sub(1);
                     tui.fs_widget.select(Some(self.filesystem_pos));
@@ -739,14 +611,29 @@ impl AppData {
 
                     tui.fs_widget.select(Some(self.filesystem_pos));
                 }
-                KeyCode::Char(FS_CREATE_FILE) => {}
-                KeyCode::Char(FS_CREATE_DIR) => {}
+                KeyCode::Char(FS_CREATE_FILE) => {
+                    *fs_state = FsState::CreateFile(String::new());
+                    tui.in_filesystem_create("create file");
+                }
+                KeyCode::Char(FS_CREATE_DIR) => {
+                    *fs_state = FsState::CreateDir(String::new());
+                    tui.in_filesystem_create("create dir");
+                }
                 KeyCode::Char(FS_DELETE) => {}
 
                 _ => (),
             },
             FsState::CreateFile(buf) => {
                 match app_ev.code {
+                    KeyCode::Esc => {
+                        // clear dialogue
+                        tui.fs_widget
+                            .dialogue_box(Option::<(&str, &str, bool)>::None);
+                        // self.enqueue_render(tui);
+                        *app_state = AppState::InFileSystem(Default::default());
+                        tui.in_filesystem();
+                        return;
+                    }
                     KeyCode::Enter => {
                         if is_valid_fs_path_segment(&buf) {
                             // construct actual path to file
@@ -778,32 +665,42 @@ impl AppData {
 
                         // jump into the file
                         *app_state = AppState::InContent(Default::default());
+                        tui.in_content_navi();
                         // clear dialogue
-                        tui.fs_widget.dialogue_box(Option::<&str>::None, false);
-                        self.enqueue_render(tui);
+                        tui.fs_widget
+                            .dialogue_box(Option::<(&str, &str, bool)>::None);
                         return;
                     }
                     KeyCode::Backspace => {
                         buf.pop();
-                        tui.fs_widget.dialogue_box(Some(&buf), false);
+                        // tui.fs_widget
+                        //     .dialogue_box(Some(("create file", &buf, false)));
                     }
                     KeyCode::Char(c) => {
                         buf.push(c);
-                        tui.fs_widget.dialogue_box(Some(&buf), false);
+                        // tui.fs_widget
+                        //     .dialogue_box(Some(("create file", &buf, false)));
                     }
                     _ => (),
                 }
 
                 // update the dialogue box
-                tui.fs_widget
-                    .dialogue_box(Some(&buf), is_valid_fs_path_segment(&buf));
+                tui.fs_widget.dialogue_box(Some((
+                    "create file",
+                    &buf,
+                    // false
+                    !is_valid_fs_path_segment(&buf),
+                )));
             }
             FsState::CreateDir(buf) => {
                 match app_ev.code {
                     KeyCode::Esc => {
                         // clear dialogue
-                        tui.fs_widget.dialogue_box(Option::<&str>::None, false);
-                        // self.enqueue_render(tui);
+                        tui.fs_widget
+                            .dialogue_box(Option::<(&str, &str, bool)>::None);
+
+                        *app_state = AppState::InFileSystem(Default::default());
+                        tui.in_filesystem();
                         return;
                     }
                     KeyCode::Enter => {
@@ -829,28 +726,45 @@ impl AppData {
                             return;
                         }
 
-                        // jump into the file
-                        *app_state = AppState::InFileSystem(Default::default());
                         // clear dialogue
-                        tui.fs_widget.dialogue_box(Option::<&str>::None, false);
-                        // self.enqueue_render(tui);
+                        tui.fs_widget
+                            .dialogue_box(Option::<(&str, &str, bool)>::None);
+
+                        let dir_path = self.fs_dirs.pop().unwrap().0;
+
+                        let new_read_dir = rfs::fs::read_dir(self.ctx.clone(), &dir_path)
+                            .await
+                            .unwrap();
+
+                        self.fs_dirs.push((dir_path.clone(), new_read_dir.clone()));
+                        tui.fs_widget.update(new_read_dir);
+                        tui.fs_widget.select(Some(0));
+
+                        *app_state = AppState::InFileSystem(Default::default());
+                        tui.in_filesystem();
+
                         return;
                     }
                     KeyCode::Backspace => {
                         buf.pop();
-                        tui.fs_widget.dialogue_box(Some(&buf), false);
+                        // tui.fs_widget
+                        //     .dialogue_box(Some(("create dir", &buf, false)));
                     }
                     KeyCode::Char(c) => {
                         buf.push(c);
-                        tui.fs_widget.dialogue_box(Some(&buf), false);
+                        // tui.fs_widget
+                        //     .dialogue_box(Some(("create dir", &buf, false)));
                     }
 
                     _ => (),
                 }
 
                 // update the dialogue box
-                tui.fs_widget
-                    .dialogue_box(Some(&buf), is_valid_fs_path_segment(&buf));
+                tui.fs_widget.dialogue_box(Some((
+                    "create dir",
+                    &buf,
+                    !is_valid_fs_path_segment(&buf),
+                )));
             }
 
             _ => todo!(),
@@ -872,6 +786,10 @@ impl AppData {
         match cont_state {
             ContentState::Navigate => {
                 match app_ev.code {
+                    KeyCode::Esc => {
+                        *app_state = AppState::OnContent;
+                        tui.on_content();
+                    }
                     // navi
                     KeyCode::Up => {
                         tui.content_widget.cursor_up();
@@ -888,6 +806,7 @@ impl AppData {
                     KeyCode::Enter => {
                         // toggle insert mode
                         *cont_state = ContentState::Insert;
+                        tui.in_content_insert();
 
                         self.unsaved_buf.clear();
                     }
@@ -895,9 +814,18 @@ impl AppData {
                     _ => (),
                 }
 
-                self.contents_pos = tui.content_widget.cursor_offset();
+                self.cursor_pos = tui.content_widget.cursor_offset();
+                self.unsaved_offset = self.cursor_pos.unwrap_or_default();
             }
             ContentState::Insert => {
+                // init pos if not init'd
+                match self.cursor_pos {
+                    Some(_) => (),
+                    None => {
+                        self.cursor_pos = Some(0);
+                    }
+                };
+
                 match app_ev.code {
                     // every escape updates the file
                     KeyCode::Esc => {
@@ -906,7 +834,7 @@ impl AppData {
                             None => return,
                         };
 
-                        match self.contents_pos {
+                        match self.cursor_pos {
                             Some(offset) => {
                                 let mut lock = v_file.lock().await;
 
@@ -923,24 +851,28 @@ impl AppData {
 
                         // toggle insert mode
                         *cont_state = ContentState::Navigate;
+                        tui.in_content_navi();
                         // self.enqueue_render(tui);
                     }
 
                     KeyCode::Char(c) => {
                         // insert char
                         self.unsaved_buf.push(c);
-                        tui.content_widget.set_contents(Some(&self.unsaved_buf));
+                        self.cursor_pos.as_mut().and_then(|p| Some(*p += 1));
+                        self.update_content_disp(tui);
                     }
 
                     KeyCode::Enter => {
                         // insert newline
                         self.unsaved_buf.push('\n');
-                        tui.content_widget.set_contents(Some(&self.unsaved_buf));
+                        self.cursor_pos.as_mut().and_then(|p| Some(*p += 1));
+                        self.update_content_disp(tui);
                     }
 
                     KeyCode::Backspace => {
                         self.unsaved_buf.pop();
-                        tui.content_widget.set_contents(Some(&self.unsaved_buf));
+                        self.cursor_pos.as_mut().and_then(|p| Some(*p -= 1));
+                        self.update_content_disp(tui);
                     }
 
                     _ => (),
@@ -980,6 +912,18 @@ impl AppData {
 
             _ => unimplemented!(),
         }
+    }
+
+    /// Update content widget with the current content, offset and unsaved buf.
+    fn update_content_disp(&mut self, tui: &mut Tui) {
+        let upd = FileUpdate::Insert((self.unsaved_offset, self.unsaved_buf.as_bytes().to_vec()));
+        let disp_contents = upd.update_file(self.content.as_deref().unwrap_or("").as_bytes());
+
+        tui.content_widget
+            .set_contents(Some(std::str::from_utf8(&disp_contents).unwrap()));
+
+        tui.content_widget
+            .set_cursor_offset(self.cursor_pos.unwrap_or(0));
     }
 
     /// Enqueue a render event to the event channel
@@ -1090,6 +1034,8 @@ mod tests {
     fn test_validate_filesystem_string() {
         assert!(is_valid_fs_path_segment("valid_string.txt"));
         assert!(is_valid_fs_path_segment("0valid_string1"));
+        assert!(is_valid_fs_path_segment("a"));
+        assert!(is_valid_fs_path_segment("asd"));
 
         assert!(!is_valid_fs_path_segment("invalid_string%.asd"));
         assert!(!is_valid_fs_path_segment("invalid_string>.asd"));

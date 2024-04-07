@@ -54,7 +54,7 @@ pub struct FsTree {
     focused: bool,
 
     /// Dialogue contents and error flag
-    dialogue: Option<(String, bool)>,
+    dialogue: Option<(String, String, bool)>,
 }
 
 /// Error log widget.
@@ -240,7 +240,7 @@ impl Widget for FsTree {
 
         para.render(area, buf);
 
-        if let Some((entry, err)) = self.dialogue {
+        if let Some((title, entry, err)) = self.dialogue {
             let popup_style = match err {
                 true => Style::new().red(),
                 false => Style::new().white(),
@@ -265,7 +265,7 @@ impl Widget for FsTree {
                     DEFAULT_BLOCK
                         .borders(Borders::ALL)
                         .border_style(popup_style)
-                        .title("create")
+                        .title(title)
                         .title_alignment(ratatui::layout::Alignment::Center),
                 )
                 .alignment(ratatui::layout::Alignment::Center);
@@ -617,9 +617,9 @@ impl FsTree {
     }
 
     /// Show a dialogue box with a message. Used for file/dir creation
-    pub fn dialogue_box<T: ToString>(&mut self, message: Option<T>, error: bool) {
-        self.dialogue = match message {
-            Some(m) => Some((m.to_string(), error)),
+    pub fn dialogue_box<T: ToString, M: ToString>(&mut self, dialogue: Option<(T, M, bool)>) {
+        self.dialogue = match dialogue {
+            Some((title, msg, err)) => Some((title.to_string(), msg.to_string(), err)),
             None => None,
         };
     }
@@ -722,8 +722,30 @@ impl ContentWindow {
         self.error_message = err.and_then(|e| Some(e.to_string()));
     }
 
+    /// Sets the cursor position in the file, x and y offset.
     pub fn set_cursor_pos(&mut self, pos: Option<(u16, u16)>) {
         self.cursor_pos = pos;
+    }
+
+    /// Sets the cursor position in the file as an offset.
+    pub fn set_cursor_offset(&mut self, offset: usize) {
+        let contents = self.contents.as_deref().unwrap_or("");
+        let lines = contents.split('\n').collect::<Vec<_>>();
+
+        let mut line_count = 0;
+        let mut char_count = 0;
+
+        for (idx, line) in lines.iter().enumerate() {
+            let line_len = line.chars().count();
+
+            if char_count + line_len >= offset {
+                self.cursor_pos = Some((offset as u16 - char_count as u16, idx as u16));
+                return;
+            }
+
+            char_count += line_len + 1;
+            line_count += 1;
+        }
     }
 
     /// Highlight a section of text in the file. The highlighted range is inclusive.

@@ -114,7 +114,7 @@ async fn main() -> io::Result<()> {
         }
     };
 
-    let mut app = ui::App::new(manager, 60.0, 60.0, sh);
+    let mut app = ui::App::new(manager, 50.0, 50.0, sh);
     app.run().await?;
 
     return Ok(());

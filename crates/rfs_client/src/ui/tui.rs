@@ -327,13 +327,17 @@ impl Tui {
         // update piped stderr logs
         // stderr logs are automatically updated every draw call
         let mut new_logs = String::new();
-        self.stderr_pipe.lock().unwrap().read_to_string(&mut new_logs)?;
+        self.stderr_pipe
+            .lock()
+            .unwrap()
+            .read_to_string(&mut new_logs)?;
         self.logs_widget.push(new_logs);
 
         let title_widget = self.title_widget.clone();
         let fs_widget = self.fs_widget.clone();
         let commands_widget = self.commands_widget.clone();
         let logs_widget = self.logs_widget.clone();
+        let content_widget = self.content_widget.clone();
 
         self.draw(|f| {
             let windows = UIWindows::from(f.borrow());
@@ -342,12 +346,80 @@ impl Tui {
 
             f.render_widget(title_widget, windows.title);
             f.render_widget(fs_widget, windows.filesystem);
+            f.render_widget(content_widget, windows.content);
             f.render_widget(commands_widget, windows.commands);
             f.render_widget(logs_widget, windows.logs);
             // we are left with the content window, which is not implemented yet
         })?;
 
         Ok(())
+    }
+
+    pub fn on_filesystem(&mut self) {
+        self.fs_widget.focus(true);
+        self.content_widget.focus(false);
+        self.commands_widget.clear();
+        self.commands_widget.add([
+            ("ENTER", "enter insert mode"),
+            ("LEFT", "filesystem tree"),
+            ("arrow keys", "navigate"),
+            ("w", "watch file for changes"),
+        ]);
+    }
+
+    pub fn on_content(&mut self) {
+        self.content_widget.focus(true);
+        self.fs_widget.focus(false);
+        self.commands_widget.clear();
+        self.commands_widget.add([
+            ("ESC", "exit"),
+            ("ENTER", "enter filesystem browse"),
+            ("RIGHT", "go to content"),
+        ]);
+    }
+
+    pub fn in_filesystem(&mut self) {
+        self.content_widget.focus(false);
+        self.fs_widget.focus(true);
+        self.commands_widget.clear();
+        self.commands_widget.add([
+            ("ESC", "exit filesystem browse"),
+            ("ENTER", "enter file/dir"),
+            ("BACKSPACE", "go to parent dir"),
+            ("UP/DOWN", "navigate"),
+            ("f", "create file"),
+            ("d", "create directory"),
+            ("x", "delete file/dir"),
+        ]);
+    }
+
+    pub fn in_content_navi(&mut self) {
+        self.fs_widget.focus(false);
+        self.content_widget.focus(true);
+        self.commands_widget.clear();
+        self.commands_widget.add([
+            ("ESC", "go to content"),
+            ("ENTER", "enter insert mode"),
+            ("arrow keys", "navigate"),
+            // ("LEFT", "go to filesystem"),
+        ]);
+    }
+
+    pub fn in_content_insert(&mut self) {
+        self.fs_widget.focus(false);
+        self.content_widget.focus(true);
+        self.commands_widget.clear();
+        self.commands_widget
+            .add([("ESC", "exit insert mode and save changes")]);
+    }
+
+    pub fn in_filesystem_create(&mut self, title: &str) {
+        self.fs_widget.focus(true);
+        self.content_widget.focus(false);
+        self.commands_widget.clear();
+        self.commands_widget
+            .add([("ESC", "cancel"), ("ENTER", "create file/dir")]);
+        self.fs_widget.dialogue_box(Some((title, "", false)));
     }
 }
 
@@ -480,7 +552,7 @@ mod tests {
             (tree, num_entries)
         };
 
-        fs_tree.dialogue_box(Some("file_name"), false);
+        fs_tree.dialogue_box(Some(("create file!!!!", "file_name", false)));
 
         let mut fs_selection = 0;
 
