@@ -14,9 +14,9 @@ use rfs::interfaces::FileUpdate;
 use rfs::{fs::VirtReadDir, middleware::ContextManager, state_transitions};
 use tokio::sync::Mutex;
 
-use super::tui::{FocusedWidget, Tui};
+use super::tui::{AppEvent, FocusedWidget, Tui};
 
-const FS_CREATE_FILE: char = 'c';
+const FS_CREATE_FILE: char = 'f';
 const FS_CREATE_DIR: char = 'd';
 const FS_DELETE: char = 'x';
 
@@ -39,12 +39,14 @@ trait HandleStateEvent {
 }
 
 /// Application state
-#[derive(Debug)]
+// #[derive(Debug)]
 pub struct App {
     exit: bool,
 
     /// All app-related data lives in here
     data: AppData,
+
+    sh: Arc<std::sync::Mutex<shh::ShhStderr>>,
 
     // ctx: ContextManager,
 
@@ -244,10 +246,11 @@ impl TryFrom<KeyEvent> for AppEvents {
 }
 
 impl App {
-    pub fn new(ctx: ContextManager, tick_rate: f64, frame_rate: f64) -> Self {
+    pub fn new(ctx: ContextManager, tick_rate: f64, frame_rate: f64, shh: shh::ShhStderr) -> Self {
         Self {
             exit: false,
             data: AppData::new(ctx),
+            sh: Arc::new(std::sync::Mutex::new(shh)),
             // ctx,
             // fs_dirs: FixedSizeStack::new(None),
             // filesystem_pos: todo!(),
@@ -268,42 +271,103 @@ impl App {
     /// This is the main application loop.
     /// A [Tui] is instantiated here and used to render the UI.
     pub async fn run(&mut self) -> io::Result<()> {
-        let mut tui = Tui::new(60.0, 4.0)?;
-
+        let mut tui = Tui::new(60.0, 4.0, self.sh.clone())?;
         tui.enter()?;
         tui.start();
 
         // tui.draw(f);
         while let Some(event) = tui.next().await {
             match event {
-                super::tui::AppEvent::Init => {
+                AppEvent::Init => {
                     // asd
-                    self.init();
+                    self.init(&mut tui).await;
 
                     // render the result
-                    tui.event_tx.send(super::tui::AppEvent::Render).unwrap();
+                    tui.event_tx.send(AppEvent::Render).unwrap();
                 }
-                super::tui::AppEvent::Quit => {
+                AppEvent::Quit => {
                     tui.stop();
                     tui.exit()?;
                     break;
                 }
-                super::tui::AppEvent::Error(e) => todo!(),
-                super::tui::AppEvent::Closed => break,
-                super::tui::AppEvent::Tick
-                | super::tui::AppEvent::Render
-                | super::tui::AppEvent::Resize(_, _) => tui.draw_to_screen().await?,
-                super::tui::AppEvent::FocusGained => (),
-                super::tui::AppEvent::FocusLost => (),
-                super::tui::AppEvent::Paste(paste_str) => {
+                AppEvent::Error(e) => todo!(),
+                AppEvent::Closed => break,
+                AppEvent::Tick | AppEvent::Render | AppEvent::Resize(_, _) => {
+                    // tui.logs_widget.update_logs();
+                    tui.draw_to_screen().await?
+                }
+                AppEvent::FocusGained => (),
+                AppEvent::FocusLost => (),
+                AppEvent::Paste(paste_str) => {
                     log::debug!("paste not yet handled")
                 }
-                super::tui::AppEvent::Key(key_event) => {
-                    self.handle_key_event(key_event, &mut tui).await
+                AppEvent::Key(key_event) => {
+                    self.data
+                        .handle_app_state(&mut self.state, key_event, &mut tui)
+                        .await
                 }
-                super::tui::AppEvent::Mouse(_) => (),
-                super::tui::AppEvent::SetContentNotification(notif) => {
+                AppEvent::Mouse(_) => (),
+                AppEvent::SetContentNotification(notif) => {
                     tui.content_widget.set_notification(notif);
+                }
+                AppEvent::HighlightContent(content) => match content {
+                    Some((offset, len)) => {
+                        tui.content_widget.set_highlight(offset, len);
+                    }
+                    None => tui.content_widget.clear_highlight(),
+                },
+                AppEvent::FileUpdate { path, upd } => {
+                    log::debug!("file update event for: {:?}", path);
+                    //
+                    let v_file = match &self.data.v_file {
+                        Some(vf) => vf,
+                        // ignore
+                        None => continue,
+                    };
+
+                    log::debug!("acquiring lock on current vfile");
+                    let mut lock = v_file.lock().await;
+                    let upd_dur = Duration::from_secs(2);
+                    match &lock.as_path() == &path {
+                        // curr file is being updated
+                        true => {
+                            match &upd {
+                                FileUpdate::Append(data) => Self::show_highlight(
+                                    lock.local_cache().len(),
+                                    data.len(),
+                                    upd_dur,
+                                    &tui,
+                                ),
+                                FileUpdate::Insert((offset, data)) => {
+                                    Self::show_highlight(*offset, data.len(), upd_dur, &tui)
+                                }
+                                FileUpdate::Overwrite(data) => {
+                                    Self::show_highlight(0, data.len(), upd_dur, &tui)
+                                }
+                            }
+
+                            lock.update_bytes(upd);
+                        }
+                        // search for other files in lookup and update it
+                        false => match self.data.v_file_history.get(&path) {
+                            Some(vf) => {
+                                log::debug!("updating file in history");
+                                let mut map_lock = vf.lock().await;
+
+                                Self::show_notification(
+                                    format!("{} updated", &path),
+                                    Duration::from_secs(2),
+                                    &tui,
+                                );
+
+                                map_lock.update_bytes(upd);
+                            }
+                            None => (),
+                        },
+                    }
+
+                    // possible race condition: file watch for previous file completes
+                    // while new file is still being watched
                 }
             }
         }
@@ -311,8 +375,18 @@ impl App {
         Ok(())
     }
 
-    /// Initialize the app by performing some initial queries to the remote
-    pub fn init(&mut self) {}
+    /// Initialize the app by populating the curdir and setting the initial state
+    pub async fn init(&mut self, tui: &mut Tui) {
+        self.state = AppState::OnFileSystem;
+
+        let start_dir_entry = rfs::fs::read_dir(self.data.ctx.clone(), ".").await.unwrap();
+
+        self.data
+            .fs_dirs
+            .push((".".to_string(), start_dir_entry.clone()));
+
+        tui.fs_widget.push(start_dir_entry, ".");
+    }
 
     // main entry point for keyboard interaction
     // no longer used, see `impl AppData`.
@@ -472,6 +546,22 @@ impl App {
                 .unwrap();
         });
     }
+
+    /// Show a highlight on the content widget for a specified duration,
+    /// and then toggle it off.
+    fn show_highlight(offset: usize, len: usize, dur: Duration, tui: &Tui) {
+        let ev_chan = tui.event_tx.clone();
+
+        tokio::spawn(async move {
+            ev_chan
+                .send(AppEvent::HighlightContent(Some((offset, len))))
+                .unwrap();
+
+            tokio::time::sleep(dur).await;
+
+            ev_chan.send(AppEvent::HighlightContent(None))
+        });
+    }
 }
 
 impl AppData {
@@ -500,21 +590,67 @@ impl AppData {
             AppState::OnContent => {
                 tui.fs_widget.focus(false);
                 tui.content_widget.focus(true);
-                if let KeyCode::Enter = app_ev.code {
-                    *app_state = AppState::InContent(ContentState::default());
+                tui.commands_widget.clear();
+                tui.commands_widget.add([
+                    ("ENTER", "enter insert mode"),
+                    ("LEFT", "filesystem tree"),
+                    ("arrow keys", "navigate"),
+                    ("w", "watch file for changes"),
+                ]);
+                match app_ev.code {
+                    KeyCode::Enter => {
+                        *app_state = AppState::InContent(ContentState::default());
+                    }
+                    KeyCode::Left => {
+                        *app_state = AppState::OnFileSystem;
+                    }
+                    _ => (),
                 }
             }
             AppState::InContent(_) => {
                 tui.fs_widget.focus(false);
+                tui.content_widget.focus(true);
+                tui.commands_widget.clear();
+                tui.commands_widget
+                    .add([("ESC", "exit insert mode and save changes")]);
                 self.handle_content_state(app_state, app_ev, tui).await;
             }
             AppState::OnFileSystem => {
                 tui.content_widget.focus(false);
-                if let KeyCode::Enter = app_ev.code {
-                    *app_state = AppState::InFileSystem(FsState::default());
+                tui.fs_widget.focus(true);
+                tui.commands_widget.clear();
+                tui.commands_widget.add([
+                    ("ESC", "exit"),
+                    ("ENTER", "enter filesystem browse"),
+                    ("RIGHT", "go to content"),
+                ]);
+
+                match app_ev.code {
+                    KeyCode::Esc => {
+                        tui.event_tx.send(AppEvent::Quit).unwrap();
+                    }
+                    KeyCode::Enter => {
+                        *app_state = AppState::InFileSystem(FsState::default());
+                    }
+                    KeyCode::Right => {
+                        *app_state = AppState::OnContent;
+                    }
+                    _ => (),
                 }
             }
             AppState::InFileSystem(_) => {
+                tui.content_widget.focus(false);
+                tui.fs_widget.focus(true);
+                tui.commands_widget.clear();
+                tui.commands_widget.add([
+                    ("ESC", "exit filesystem browse"),
+                    ("ENTER", "enter file/dir"),
+                    ("BACKSPACE", "go to parent dir"),
+                    ("UP/DOWN", "navigate"),
+                    ("f", "create file"),
+                    ("d", "create directory"),
+                    ("x", "delete file/dir"),
+                ]);
                 self.handle_fs_state(app_state, app_ev, tui).await;
             }
         }
@@ -534,9 +670,62 @@ impl AppData {
 
         match fs_state {
             FsState::Navigate => match app_ev.code {
-                KeyCode::Enter => {}
+                KeyCode::Esc => {
+                    *app_state = AppState::OnFileSystem;
+                }
+                KeyCode::Enter => {
+                    let top_dir_entry = self.fs_dirs.top().cloned();
+
+                    let dir_entry = match &top_dir_entry {
+                        Some((dir, read_dir)) => match read_dir.get(self.filesystem_pos) {
+                            Some(entry) => entry,
+                            None => return,
+                        },
+                        None => return,
+                    };
+
+                    match dir_entry.is_file() {
+                        // open file
+                        true => {
+
+                            //
+                        }
+                        // read dir and recurse
+                        false => {
+                            let path = dir_entry.path.clone();
+                            let read_dir = match rfs::fs::read_dir(self.ctx.clone(), &path).await {
+                                Ok(rd) => rd,
+                                Err(e) => {
+                                    log::error!("Read dir error: {:?}", e);
+                                    return;
+                                }
+                            };
+
+                            let entry = (path, read_dir.clone());
+                            self.fs_dirs.push(entry);
+                            self.filesystem_pos = 0;
+                            tui.fs_widget
+                                .push(read_dir, dir_entry.path().file_name().unwrap_or_default());
+                            tui.fs_widget.select(Some(self.filesystem_pos));
+                        }
+                    }
+                }
+                /// Go up one dir (if possible)
+                KeyCode::Backspace => {
+                    match self.fs_dirs.depth() > 1 {
+                        true => {
+                            self.fs_dirs.pop();
+                            self.filesystem_pos = 0;
+                            tui.fs_widget.pop();
+
+                            // TODO: perform a read dir call
+                            tui.fs_widget.select(Some(self.filesystem_pos));
+                        }
+                        false => (),
+                    }
+                }
                 KeyCode::Up => {
-                    self.filesystem_pos.saturating_sub(1);
+                    self.filesystem_pos = self.filesystem_pos.saturating_sub(1);
                     tui.fs_widget.select(Some(self.filesystem_pos));
                 }
                 KeyCode::Down => {
@@ -552,6 +741,7 @@ impl AppData {
                 }
                 KeyCode::Char(FS_CREATE_FILE) => {}
                 KeyCode::Char(FS_CREATE_DIR) => {}
+                KeyCode::Char(FS_DELETE) => {}
 
                 _ => (),
             },
@@ -575,7 +765,8 @@ impl AppData {
                                         match VirtFile::create(self.ctx.clone(), &path).await {
                                             Ok(vf) => Arc::new(Mutex::new(vf)),
                                             Err(e) => {
-                                                todo!()
+                                                log::error!("virtual file creation error: {:?}", e);
+                                                return;
                                             }
                                         };
 
@@ -594,8 +785,12 @@ impl AppData {
                     }
                     KeyCode::Backspace => {
                         buf.pop();
+                        tui.fs_widget.dialogue_box(Some(&buf), false);
                     }
-                    KeyCode::Char(c) => buf.push(c),
+                    KeyCode::Char(c) => {
+                        buf.push(c);
+                        tui.fs_widget.dialogue_box(Some(&buf), false);
+                    }
                     _ => (),
                 }
 
@@ -608,7 +803,7 @@ impl AppData {
                     KeyCode::Esc => {
                         // clear dialogue
                         tui.fs_widget.dialogue_box(Option::<&str>::None, false);
-                        self.enqueue_render(tui);
+                        // self.enqueue_render(tui);
                         return;
                     }
                     KeyCode::Enter => {
@@ -630,19 +825,25 @@ impl AppData {
                             };
 
                             self.fs_dirs.push((path, read_dir));
+                        } else {
+                            return;
                         }
 
                         // jump into the file
                         *app_state = AppState::InFileSystem(Default::default());
                         // clear dialogue
                         tui.fs_widget.dialogue_box(Option::<&str>::None, false);
-                        self.enqueue_render(tui);
+                        // self.enqueue_render(tui);
                         return;
                     }
                     KeyCode::Backspace => {
                         buf.pop();
+                        tui.fs_widget.dialogue_box(Some(&buf), false);
                     }
-                    KeyCode::Char(c) => buf.push(c),
+                    KeyCode::Char(c) => {
+                        buf.push(c);
+                        tui.fs_widget.dialogue_box(Some(&buf), false);
+                    }
 
                     _ => (),
                 }
@@ -745,9 +946,36 @@ impl AppData {
                     _ => (),
                 }
             }
+            // spawns a watch channel
             ContentState::Watch => {
                 //a ad
-                todo!()
+
+                let v_f = match &self.v_file {
+                    Some(vf) => vf.clone(),
+                    None => return,
+                };
+
+                let ev_tx = tui.event_tx.clone();
+
+                tokio::spawn(async move {
+                    let mut update_channel = match v_f.lock().await.watch_chan().await {
+                        Ok(ch) => ch,
+                        Err(_) => return,
+                    };
+
+                    match update_channel.recv().await {
+                        Some(Ok((path, update_data))) => {
+                            // update the content widget
+                            ev_tx
+                                .send(AppEvent::FileUpdate {
+                                    path,
+                                    upd: update_data,
+                                })
+                                .unwrap();
+                        }
+                        _ => return,
+                    };
+                });
             }
 
             _ => unimplemented!(),
@@ -834,6 +1062,12 @@ impl<T> FixedSizeStack<T> {
     /// Get the top element of the stack
     pub fn top(&self) -> Option<&T> {
         self.stack.last()
+    }
+
+    /// Get the current depth of the stack
+    /// (same as the number of elements in the stack)
+    pub fn depth(&self) -> usize {
+        self.stack.len()
     }
 }
 

@@ -16,14 +16,16 @@ async fn main() -> io::Result<()> {
         Err(_) => std::env::set_var("RUST_LOG", "DEBUG"),
     }
 
-    pretty_env_logger::formatted_timed_builder()
+    let sh = shh::stderr()?;
+
+    pretty_env_logger::formatted_builder()
         .parse_filters(&std::env::var("RUST_LOG").expect("RUST_LOG environment variable not set"))
         .init();
 
     let args = ClientArgs::parse();
 
     if args.test {
-        // test::test_mode(manager).await?;
+        drop(sh);
 
         let inv_prob = match args.simulate_ommisions {
             Some(frac) => frac,
@@ -112,7 +114,7 @@ async fn main() -> io::Result<()> {
         }
     };
 
-    let mut app = ui::App::new(manager, 60.0, 4.0);
+    let mut app = ui::App::new(manager, 60.0, 60.0, sh);
     app.run().await?;
 
     return Ok(());

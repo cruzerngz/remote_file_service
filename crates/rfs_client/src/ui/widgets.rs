@@ -3,7 +3,9 @@
 use std::{
     borrow::Cow,
     collections::{HashMap, VecDeque},
-    path::PathBuf,
+    io::Read,
+    path::{Path, PathBuf},
+    sync::Arc,
 };
 
 use crossterm::event::KeyCode;
@@ -18,6 +20,7 @@ use rfs::{
     fs::{VirtDirEntry, VirtReadDir},
     ser_de::de,
 };
+use tokio::sync::Mutex;
 
 use super::{tui::FocusedWidget, Ui};
 
@@ -58,9 +61,10 @@ pub struct FsTree {
 ///
 /// Logs are taken from [shh] and pushed into `self`.
 /// This struct implements [Widget], so it can be rendered to the terminal.
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct StderrLogs {
     pub logs: VecDeque<String>,
+    // sh: Arc<std::sync::Mutex<shh::ShhStderr>>,
 }
 
 /// Widget that displays available commands.
@@ -578,10 +582,12 @@ impl FsTree {
 
     /// Push a virtual directory into the stack.
     ///
+    /// The entries and directory name are func params.
+    ///
     /// This should be called when entering directories
-    pub fn push(&mut self, entries: VirtReadDir, dir: VirtDirEntry) {
+    pub fn push<P: AsRef<Path>>(&mut self, entries: VirtReadDir, dir_name: P) {
         self.entries.push(entries);
-        self.parent_dir.push(dir.path());
+        self.parent_dir.push(dir_name);
     }
 
     /// Pop the last virtual directory from the stack
@@ -617,12 +623,19 @@ impl FsTree {
             None => None,
         };
     }
+
+    /// Update the dir entries in the current directory
+    pub fn update(&mut self, entries: VirtReadDir) {
+        self.entries.pop();
+        self.entries.push(entries);
+    }
 }
 
 impl StderrLogs {
     pub fn new() -> Self {
         Self {
             logs: VecDeque::new(),
+            // sh: Arc::new(std::sync::Mutex::new(shh::stderr().unwrap())),
         }
     }
 
@@ -643,6 +656,16 @@ impl StderrLogs {
         }
 
         self.logs.extend(lines);
+    }
+
+    /// Run every tick
+    fn update_logs(&mut self) {
+        // let sh_clone = self.sh.clone();
+        // let mut lock = sh_clone.lock().unwrap();
+        // let mut log_lines = String::new();
+        // lock.read_to_string(&mut log_lines);
+
+        // self.push(log_lines);
     }
 }
 

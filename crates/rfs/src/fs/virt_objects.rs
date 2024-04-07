@@ -11,15 +11,17 @@ use std::{
     net::{SocketAddr, SocketAddrV4},
     ops::Deref,
     path::{Iter, Path, PathBuf},
+    sync::Arc,
     time::SystemTime,
 };
 
-use futures::{ready, AsyncRead, AsyncWrite, FutureExt};
+use futures::{ready, AsyncRead, AsyncWrite, FutureExt, TryFutureExt};
 use rfs_core::{
     deserialize, deserialize_packed,
     middleware::{ContextManager, TransmissionProtocol},
 };
 use serde::{Deserialize, Serialize};
+use tokio::sync::mpsc;
 
 use crate::interfaces::{CallbackOpsClient, FileUpdate, FileWriteMode, PrimitiveFsOpsClient};
 
@@ -288,7 +290,7 @@ impl VirtFile {
     }
 
     /// Returns the locally cached file contents
-    fn local_cache(&self) -> &[u8] {
+    pub fn local_cache(&self) -> &[u8] {
         &self.local_buf
     }
 
@@ -346,6 +348,68 @@ impl VirtFile {
         self.local_buf = update.clone().update_file(&self.local_buf);
 
         Ok((self.local_buf.clone(), update))
+    }
+
+    /// Watch for file updates on the returned channel.
+    ///
+    /// The local file buffer will need to be manually updated.
+    /// The updated file contents are: file path and update info.
+    pub async fn watch_chan(&self) -> io::Result<mpsc::Receiver<io::Result<(String, FileUpdate)>>> {
+        // this is the return socket the remote will send callbacks to
+        let ret_sock = self.ctx.generate_socket().await?;
+
+        let reg_resp = CallbackOpsClient::register_file_update(
+            &mut self.ctx.clone(),
+            self.path
+                .to_str()
+                .ok_or(io::Error::new(io::ErrorKind::InvalidInput, "invalid path"))?
+                .to_string(),
+            sockaddr_to_v4(ret_sock.local_addr()?)?,
+        )
+        .await?
+        .map_err(|e| io::Error::from(e))?;
+
+        let (tx, rx) = mpsc::channel(1);
+
+        let mut ctx_clone = self.ctx.clone();
+        let file_path = self.as_path();
+
+        tokio::spawn(async move {
+            let resp = match ctx_clone.listen(&ret_sock).await {
+                Ok(r) => r,
+                Err(e) => {
+                    tx.send(Err(io::Error::from(e)))
+                        .await
+                        .map_err(|e| io::Error::new(io::ErrorKind::Other, e));
+                    return;
+                }
+            };
+
+            log::debug!("watch triggered");
+
+            let update: FileUpdate = match deserialize_packed(&resp)
+                .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, "deserialization failed"))
+            {
+                Ok(upd) => upd,
+                Err(e) => {
+                    tx.send(Err(e))
+                        .await
+                        .map_err(|e| io::Error::new(io::ErrorKind::Other, e));
+                    return;
+                }
+            };
+
+            tx.send(Ok((file_path, update)));
+        });
+
+        Ok(rx)
+    }
+
+    /// Update the local contents of the file.
+    ///
+    /// If the remote file needs to be updated, use `write_bytes` instead.
+    pub fn update_bytes(&mut self, upd: FileUpdate) {
+        self.local_buf = upd.update_file(&self.local_buf);
     }
 }
 

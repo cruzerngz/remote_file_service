@@ -4,6 +4,7 @@ use std::{
     borrow::Borrow,
     io::{self, Read},
     ops::{Deref, DerefMut},
+    sync::Arc,
     time::Duration,
 };
 
@@ -21,9 +22,10 @@ use ratatui::{
     backend::{Backend, CrosstermBackend},
     layout::{Constraint, Layout, Rect},
     style::{Style, Stylize},
-    widgets::{block::title, Block, Borders},
+    widgets::{block::title, Block, Borders, Clear, Widget},
     Frame, Terminal,
 };
+use rfs::interfaces::FileUpdate;
 use tokio::{
     sync::mpsc::{self, UnboundedReceiver, UnboundedSender},
     task::JoinHandle,
@@ -50,7 +52,7 @@ pub struct Tui {
     pub paste: bool,
 
     // stderr pipe
-    pub stderr_pipe: shh::ShhStderr,
+    pub stderr_pipe: Arc<std::sync::Mutex<shh::ShhStderr>>,
 
     // widgets
     pub title_widget: TitleBar,
@@ -95,8 +97,19 @@ pub enum AppEvent {
     Mouse(MouseEvent),
     Resize(u16, u16),
 
-    // custom events
+    /// notif
     SetContentNotification(Option<String>),
+
+    /// Highlight stuff in the content window.
+    ///
+    /// tuple contains `(offset, len)`
+    HighlightContent(Option<(usize, usize)>),
+
+    /// file update event
+    FileUpdate {
+        path: String,
+        upd: FileUpdate,
+    },
 }
 
 /// If a widget can be in focus, it should implement this trait.
@@ -124,8 +137,13 @@ pub fn restore_terminal() -> io::Result<()> {
     Ok(())
 }
 impl Tui {
-    pub fn new(tick_rate: f64, frame_rate: f64) -> io::Result<Self> {
-        let terminal = ratatui::Terminal::new(CrosstermBackend::new(std::io::stdout()))?;
+    pub fn new(
+        tick_rate: f64,
+        frame_rate: f64,
+        sh: Arc<std::sync::Mutex<shh::ShhStderr>>,
+    ) -> io::Result<Self> {
+        let mut terminal = ratatui::Terminal::new(CrosstermBackend::new(std::io::stdout()))?;
+        // terminal.clear()?;
         let (event_tx, event_rx) = mpsc::unbounded_channel();
         let cancellation_token = CancellationToken::new();
         let task = tokio::spawn(async {}); // placeholder task
@@ -143,7 +161,7 @@ impl Tui {
             mouse,
             paste,
 
-            stderr_pipe: shh::stderr()?,
+            stderr_pipe: sh,
 
             title_widget: TitleBar::new(),
             fs_widget: FsTree::new(),
@@ -257,15 +275,15 @@ impl Tui {
     }
 
     pub fn enter(&mut self) -> io::Result<()> {
+        crossterm::execute!(std::io::stdout(), EnterAlternateScreen, cursor::Hide)?;
         crossterm::terminal::enable_raw_mode()?;
-        crossterm::execute!(std::io::stderr(), EnterAlternateScreen, cursor::Hide)?;
         if self.mouse {
             crossterm::execute!(std::io::stderr(), EnableMouseCapture)?;
         }
         if self.paste {
             crossterm::execute!(std::io::stderr(), EnableBracketedPaste)?;
         }
-        self.start();
+        // self.start();
         Ok(())
     }
 
@@ -279,7 +297,7 @@ impl Tui {
             if self.mouse {
                 crossterm::execute!(std::io::stderr(), DisableMouseCapture)?;
             }
-            crossterm::execute!(std::io::stderr(), LeaveAlternateScreen, cursor::Show)?;
+            crossterm::execute!(std::io::stdout(), LeaveAlternateScreen, cursor::Show)?;
             crossterm::terminal::disable_raw_mode()?;
         }
         Ok(())
@@ -309,7 +327,7 @@ impl Tui {
         // update piped stderr logs
         // stderr logs are automatically updated every draw call
         let mut new_logs = String::new();
-        self.stderr_pipe.read_to_string(&mut new_logs)?;
+        self.stderr_pipe.lock().unwrap().read_to_string(&mut new_logs)?;
         self.logs_widget.push(new_logs);
 
         let title_widget = self.title_widget.clone();
@@ -319,6 +337,8 @@ impl Tui {
 
         self.draw(|f| {
             let windows = UIWindows::from(f.borrow());
+
+            // Clear.render(area, buf)
 
             f.render_widget(title_widget, windows.title);
             f.render_widget(fs_widget, windows.filesystem);
@@ -455,7 +475,7 @@ mod tests {
             let virt_rd = VirtReadDir::from(virt);
 
             let mut tree = FsTree::new();
-            tree.push(virt_rd, cur_dir);
+            tree.push(virt_rd, &cur_dir.path);
 
             (tree, num_entries)
         };
@@ -494,7 +514,6 @@ mod tests {
                 }
 
                 fs_tree.select(Some(fs_selection));
-
 
                 // toggle select/deselect on fs and content widgets
                 focus_toggle = !focus_toggle;
