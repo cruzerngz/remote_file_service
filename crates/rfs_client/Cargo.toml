@@ -9,6 +9,7 @@ description = "Client binary"
 [dependencies]
 rfs = { path = "../rfs" }
 
+async-trait = { workspace = true }
 clap = { workspace = true }
 tokio = { workspace = true }
 tokio-util = { workspace = true }

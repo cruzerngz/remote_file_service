@@ -756,6 +756,7 @@ dependencies = [
 name = "rfs_client"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
  "clap",
  "crossterm",
  "csv",
