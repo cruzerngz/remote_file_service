@@ -49,6 +49,9 @@ pub struct FsTree {
 
     /// Render the widget with a brighter border when focused
     focused: bool,
+
+    /// Dialogue contents and error flag
+    dialogue: Option<(String, bool)>,
 }
 
 /// Error log widget.
@@ -231,7 +234,40 @@ impl Widget for FsTree {
             )
             .wrap(Wrap { trim: false });
 
-        para.render(area, buf)
+        para.render(area, buf);
+
+        if let Some((entry, err)) = self.dialogue {
+            let popup_style = match err {
+                true => Style::new().red(),
+                false => Style::new().white(),
+            };
+
+            let popup_contents = [
+                Line::from(entry),
+                Line::from(""),
+                Line::from(""),
+                Line::from("enter").style(popup_style),
+            ]
+            .into_iter()
+            .collect::<Vec<_>>();
+
+            // error message takes up half the screen in each dimension
+            let dialogue_rect = fixed_width_rect(85, popup_contents.len() as u16 + 2, area);
+
+            Clear.render(dialogue_rect, buf);
+
+            let popup = Paragraph::new(popup_contents)
+                .block(
+                    DEFAULT_BLOCK
+                        .borders(Borders::ALL)
+                        .border_style(popup_style)
+                        .title("create")
+                        .title_alignment(ratatui::layout::Alignment::Center),
+                )
+                .alignment(ratatui::layout::Alignment::Center);
+
+            popup.render(dialogue_rect, buf)
+        }
     }
 }
 
@@ -291,6 +327,22 @@ impl Widget for AvailableCommands {
 
         para.render(area, buf)
     }
+}
+
+fn fixed_width_rect(x_percent: u16, y_max_lines: u16, rect: Rect) -> Rect {
+    let popup_layout = Layout::vertical([
+        Constraint::Fill(1),
+        Constraint::Max(y_max_lines),
+        Constraint::Fill(1),
+    ])
+    .split(rect);
+
+    Layout::horizontal([
+        Constraint::Percentage((100 - x_percent) / 2),
+        Constraint::Percentage(x_percent),
+        Constraint::Percentage((100 - x_percent) / 2),
+    ])
+    .split(popup_layout[1])[1]
 }
 
 /// Derive a centered rectangle from a given rectangle, with percentage scale factor.
@@ -520,6 +572,7 @@ impl FsTree {
             entries: Vec::new(),
             selection: None,
             focused: false,
+            dialogue: None,
         }
     }
 
@@ -555,6 +608,14 @@ impl FsTree {
             }
             None => None,
         }
+    }
+
+    /// Show a dialogue box with a message. Used for file/dir creation
+    pub fn dialogue_box<T: ToString>(&mut self, message: Option<T>, error: bool) {
+        self.dialogue = match message {
+            Some(m) => Some((m.to_string(), error)),
+            None => None,
+        };
     }
 }
 
@@ -682,6 +743,36 @@ impl ContentWindow {
 
     pub fn pos(&self) -> Option<(u16, u16)> {
         self.cursor_pos
+    }
+
+    /// Returns the current cursor position in the file relative to the entire block of text.
+    pub fn cursor_offset(&self) -> Option<usize> {
+        let contents = self.contents.as_deref()?;
+        let (cursor_x, cursor_y) = self.cursor_pos?;
+
+        let lines = contents.split('\n').collect::<Vec<_>>();
+        let num_full_lines = (cursor_y as usize).saturating_sub(1);
+
+        // count all chars (incl whitespace) for all full lines
+        let full_line_char_count = lines
+            .iter()
+            .take(cursor_y as usize)
+            .map(|l| l.len())
+            .sum::<usize>()
+            + cursor_y as usize;
+
+        let last_line_char_count = match lines.get(cursor_y as usize) {
+            Some(l) => {
+                cursor_x as usize
+                    + match num_full_lines {
+                        0 => 0,
+                        _ => 1,
+                    }
+            } // newline
+            None => 0,
+        };
+
+        Some(full_line_char_count + last_line_char_count)
     }
 
     /// Get the lines and cursor position
@@ -1126,6 +1217,28 @@ mod tests {
         println!("lines: {:#?}", lines);
 
         Ok(())
+    }
+
+    #[test]
+    fn test_cursor_offset() {
+        let mut content_widget = ContentWindow::new();
+        content_widget.set_contents(Some("1234\n1234\n123"));
+        assert_eq!(content_widget.cursor_offset(), None);
+
+        content_widget.set_cursor_pos(Some((0, 0)));
+        assert_eq!(content_widget.cursor_offset(), Some(0));
+
+        content_widget.set_cursor_pos(Some((1, 0)));
+        assert_eq!(content_widget.cursor_offset(), Some(1));
+
+        content_widget.set_cursor_pos(Some((0, 1)));
+        assert_eq!(content_widget.cursor_offset(), Some(5));
+
+        content_widget.set_cursor_pos(Some((1, 1)));
+        assert_eq!(content_widget.cursor_offset(), Some(6));
+
+        content_widget.set_cursor_pos(Some((0, 2)));
+        assert_eq!(content_widget.cursor_offset(), Some(11));
     }
 
     // / Test the set_highlight() method

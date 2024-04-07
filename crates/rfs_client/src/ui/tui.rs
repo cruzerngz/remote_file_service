@@ -84,7 +84,7 @@ pub enum AppEvent {
     /// First event sent is init
     Init,
     Quit,
-    Error,
+    Error(String),
     Closed,
     Tick,
     Render,
@@ -94,6 +94,9 @@ pub enum AppEvent {
     Key(KeyEvent),
     Mouse(MouseEvent),
     Resize(u16, u16),
+
+    // custom events
+    SetContentNotification(Option<String>),
 }
 
 /// If a widget can be in focus, it should implement this trait.
@@ -219,8 +222,8 @@ impl Tui {
                                     },
                                 }
                             }
-                            Some(Err(_)) => {
-                                _event_tx.send(AppEvent::Error).unwrap();
+                            Some(Err(e)) => {
+                                _event_tx.send(AppEvent::Error(e.to_string())).unwrap();
                             }
                             None => {},
                         }
@@ -434,7 +437,7 @@ mod tests {
 
         let (mut fs_tree, num_entries) = {
             // we are manually creating virt objects here
-            const BASE_PATH: &str = "../..";
+            const BASE_PATH: &str = "./empty_dir/";
 
             let cur_dir = VirtDirEntry {
                 path: BASE_PATH.to_string(),
@@ -456,6 +459,8 @@ mod tests {
 
             (tree, num_entries)
         };
+
+        fs_tree.dialogue_box(Some("file_name"), false);
 
         let mut fs_selection = 0;
 
@@ -482,13 +487,14 @@ mod tests {
                 sh.read_to_string(&mut new_logs)?;
                 logs.push(new_logs);
 
-                if fs_selection == num_entries - 1 {
+                if fs_selection == num_entries.saturating_sub(1) {
                     fs_selection = 0;
                 } else {
                     fs_selection += 1;
                 }
 
                 fs_tree.select(Some(fs_selection));
+
 
                 // toggle select/deselect on fs and content widgets
                 focus_toggle = !focus_toggle;
