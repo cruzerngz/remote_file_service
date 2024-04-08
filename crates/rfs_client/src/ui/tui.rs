@@ -52,7 +52,7 @@ pub struct Tui {
     pub paste: bool,
 
     // stderr pipe
-    pub stderr_pipe: Arc<std::sync::Mutex<dyn io::Read + Send + Sync + 'static>>,
+    pub stderr_pipe: Arc<std::sync::Mutex<dyn io::Read + Send + 'static>>,
 
     // widgets
     pub title_widget: TitleBar,
@@ -140,7 +140,7 @@ impl Tui {
     pub fn new(
         tick_rate: f64,
         frame_rate: f64,
-        sh: Arc<std::sync::Mutex<dyn io::Read + Send + Sync + 'static>>,
+        sh: Arc<std::sync::Mutex<dyn io::Read + Send + 'static>>,
     ) -> io::Result<Self> {
         let mut terminal = ratatui::Terminal::new(CrosstermBackend::new(std::io::stdout()))?;
         // terminal.clear()?;

@@ -118,7 +118,7 @@ async fn main() -> io::Result<()> {
         }
     };
 
-    let stderr_pipe: Box<dyn io::Read + Send + Sync + 'static> = match args.log_to_file {
+    let stderr_pipe: Box<dyn io::Read + Send + 'static> = match args.log_to_file {
         true => {
             let io_pipe = IOPipe::new(
                 Box::new(shh::stderr()?),
@@ -145,8 +145,8 @@ async fn main() -> io::Result<()> {
 ///
 struct IOPipe {
     // usually a file
-    target: Box<dyn io::Write + Send + Sync + 'static>,
-    source: Box<dyn io::Read + Send + Sync + 'static>,
+    target: Box<dyn io::Write + Send + 'static>,
+    source: Box<dyn io::Read + Send + 'static>,
 }
 
 impl io::Read for IOPipe {
@@ -162,8 +162,8 @@ impl io::Read for IOPipe {
 
 impl IOPipe {
     pub fn new(
-        source: Box<dyn io::Read + Send + Sync + 'static>,
-        target: Box<dyn io::Write + Send + Sync + 'static>,
+        source: Box<dyn io::Read + Send + 'static>,
+        target: Box<dyn io::Write + Send + 'static>,
     ) -> Self {
         Self { source, target }
     }

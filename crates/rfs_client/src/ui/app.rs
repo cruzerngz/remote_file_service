@@ -46,7 +46,7 @@ pub struct App {
     /// All app-related data lives in here
     data: AppData,
 
-    sh: Arc<std::sync::Mutex<dyn io::Read + Send + Sync + 'static>>,
+    sh: Arc<std::sync::Mutex<dyn io::Read + Send + 'static>>,
 
     // ctx: ContextManager,
 
@@ -252,7 +252,7 @@ impl App {
         ctx: ContextManager,
         tick_rate: f64,
         frame_rate: f64,
-        shh: Box<dyn io::Read + Send + Sync + 'static>,
+        shh: Box<dyn io::Read + Send + 'static>,
     ) -> Self {
         Self {
             exit: false,
@@ -672,10 +672,26 @@ impl AppData {
                                     Duration::from_secs(2),
                                     tui,
                                 );
+
+                                // clear the screen if the file is displayed there
+                                if let Some(vf) = &self.v_file {
+                                    if &vf.lock().await.as_path() == &path {
+                                        self.v_file = None;
+                                        self.content = None;
+                                        self.unsaved_buf.clear();
+                                        self.unsaved_offset = 0;
+                                        tui.content_widget.set_contents(Option::<&str>::None);
+                                        tui.content_widget.set_cursor_offset(0);
+                                    }
+                                }
                             }
                             Err(e) => {
                                 log::error!("remove file error: {:?}", e);
-                                App::show_error_message(e, Duration::from_secs(2), tui);
+                                App::show_error_message(
+                                    format!("{:?}", e),
+                                    Duration::from_secs(2),
+                                    tui,
+                                );
                                 return;
                             }
                         },
@@ -689,7 +705,11 @@ impl AppData {
                             }
                             Err(e) => {
                                 log::error!("remove dir error: {:?}", e);
-                                App::show_error_message(e, Duration::from_secs(2), tui);
+                                App::show_error_message(
+                                    format!("{:?}", e),
+                                    Duration::from_secs(2),
+                                    tui,
+                                );
                             }
                         },
                     }
