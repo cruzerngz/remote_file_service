@@ -46,7 +46,7 @@ pub struct App {
     /// All app-related data lives in here
     data: AppData,
 
-    sh: Arc<std::sync::Mutex<shh::ShhStderr>>,
+    sh: Arc<std::sync::Mutex<dyn io::Read + Send + Sync + 'static>>,
 
     // ctx: ContextManager,
 
@@ -248,19 +248,16 @@ impl TryFrom<KeyEvent> for AppEvents {
 }
 
 impl App {
-    pub fn new(ctx: ContextManager, tick_rate: f64, frame_rate: f64, shh: shh::ShhStderr) -> Self {
+    pub fn new(
+        ctx: ContextManager,
+        tick_rate: f64,
+        frame_rate: f64,
+        shh: Box<dyn io::Read + Send + Sync + 'static>,
+    ) -> Self {
         Self {
             exit: false,
             data: AppData::new(ctx),
             sh: Arc::new(std::sync::Mutex::new(shh)),
-            // ctx,
-            // fs_dirs: FixedSizeStack::new(None),
-            // filesystem_pos: todo!(),
-            // v_file: None,
-            // content: None,
-            // contents_pos: None,
-            // unsaved_buf: Default::default(),
-            // err_msg: None,
             state: Default::default(),
             state_stack: {
                 let mut stack = FixedSizeStack::new(Some(10));
@@ -283,18 +280,20 @@ impl App {
 
             match event {
                 AppEvent::Init => {
-                    // asd
                     self.init(&mut tui).await;
-
-                    // render the result
-                    // tui.event_tx.send(AppEvent::Render).unwrap();
                 }
                 AppEvent::Quit => {
+                    log::debug!("quit event received");
                     tui.stop();
                     tui.exit()?;
                     break;
                 }
-                AppEvent::Error(e) => todo!(),
+                // TODO: refac to Option<String>
+                AppEvent::Error(e) => {
+                    tui.content_widget.set_error_message(e);
+
+                    // tui.event_tx.send(AppEvent::Render);
+                }
                 AppEvent::Closed => break,
                 AppEvent::Tick | AppEvent::Render | AppEvent::Resize(_, _) => {
                     // tui.logs_widget.update_logs();
@@ -337,6 +336,17 @@ impl App {
                     match &lock.as_path() == &path {
                         // curr file is being updated
                         true => {
+                            lock.update_bytes(upd.clone());
+                            let upd_contents = std::str::from_utf8(lock.local_cache()).unwrap();
+
+                            // clear notif
+                            tui.content_widget.set_notification(Option::<&str>::None);
+                            self.data.content = Some(upd_contents.to_string());
+                            self.data.unsaved_buf.clear();
+                            self.data.unsaved_offset = self.data.cursor_pos.unwrap_or_default();
+
+                            tui.content_widget.set_contents(Some(upd_contents));
+
                             match &upd {
                                 FileUpdate::Append(data) => Self::show_highlight(
                                     lock.local_cache().len(),
@@ -345,14 +355,17 @@ impl App {
                                     &tui,
                                 ),
                                 FileUpdate::Insert((offset, data)) => {
+                                    log::info!(
+                                        "file insertion of len {} at offset {}",
+                                        data.len(),
+                                        offset
+                                    );
                                     Self::show_highlight(*offset, data.len(), upd_dur, &tui)
                                 }
                                 FileUpdate::Overwrite(data) => {
                                     Self::show_highlight(0, data.len(), upd_dur, &tui)
                                 }
                             }
-
-                            lock.update_bytes(upd);
                         }
                         // search for other files in lookup and update it
                         false => match self.data.v_file_history.get(&path) {
@@ -392,6 +405,7 @@ impl App {
             .push((".".to_string(), start_dir_entry.clone()));
 
         tui.fs_widget.push(start_dir_entry, ".");
+        tui.title_widget.set_title(Some("rfs_client"));
         tui.in_filesystem();
     }
 
@@ -429,6 +443,21 @@ impl App {
             tokio::time::sleep(dur).await;
 
             ev_chan.send(AppEvent::HighlightContent(None))
+        });
+    }
+
+    fn show_error_message<M: ToString>(msg: M, dur: Duration, tui: &Tui) {
+        let ev_chan = tui.event_tx.clone();
+        let message = msg.to_string();
+
+        tokio::spawn(async move {
+            log::debug!("sending err msg to channel");
+            ev_chan.send(AppEvent::Error(Some(message))).unwrap();
+
+            tokio::time::sleep(dur).await;
+
+            log::debug!("clearing err msg");
+            ev_chan.send(AppEvent::Error(None)).unwrap();
         });
     }
 }
@@ -534,6 +563,7 @@ impl AppData {
                                         Ok(vf) => Arc::new(Mutex::new(vf)),
                                         Err(e) => {
                                             log::error!("virtual file open error: {:?}", e);
+                                            App::show_error_message(e, Duration::from_secs(2), tui);
                                             return;
                                         }
                                     };
@@ -560,20 +590,23 @@ impl AppData {
                         // read dir and recurse
                         false => {
                             let path = dir_entry.path.clone();
-                            let read_dir = match rfs::fs::read_dir(self.ctx.clone(), &path).await {
-                                Ok(rd) => rd,
+                            match rfs::fs::read_dir(self.ctx.clone(), &path).await {
+                                Ok(read_dir) => {
+                                    let entry = (path, read_dir.clone());
+                                    self.fs_dirs.push(entry);
+                                    self.filesystem_pos = 0;
+                                    tui.fs_widget.push(
+                                        read_dir,
+                                        dir_entry.path().file_name().unwrap_or_default(),
+                                    );
+                                    tui.fs_widget.select(Some(self.filesystem_pos));
+                                }
                                 Err(e) => {
                                     log::error!("Read dir error: {:?}", e);
+                                    App::show_error_message(e, Duration::from_secs(2), tui);
                                     return;
                                 }
                             };
-
-                            let entry = (path, read_dir.clone());
-                            self.fs_dirs.push(entry);
-                            self.filesystem_pos = 0;
-                            tui.fs_widget
-                                .push(read_dir, dir_entry.path().file_name().unwrap_or_default());
-                            tui.fs_widget.select(Some(self.filesystem_pos));
                         }
                     }
                 }
@@ -626,6 +659,8 @@ impl AppData {
             FsState::CreateFile(buf) => {
                 match app_ev.code {
                     KeyCode::Esc => {
+                        log::debug!("esc key pressed. cancelling file creation");
+
                         // clear dialogue
                         tui.fs_widget
                             .dialogue_box(Option::<(&str, &str, bool)>::None);
@@ -634,7 +669,10 @@ impl AppData {
                         tui.in_filesystem();
                         return;
                     }
+                    // there is some bug here that exits the app
                     KeyCode::Enter => {
+                        log::debug!("enter key pressed. creating file");
+
                         if is_valid_fs_path_segment(&buf) {
                             // construct actual path to file
                             let path = match self.fs_dirs.top() {
@@ -648,38 +686,60 @@ impl AppData {
                                 }
                                 None => {
                                     // create a new file
-                                    let v_file =
-                                        match VirtFile::create(self.ctx.clone(), &path).await {
-                                            Ok(vf) => Arc::new(Mutex::new(vf)),
-                                            Err(e) => {
-                                                log::error!("virtual file creation error: {:?}", e);
-                                                return;
-                                            }
-                                        };
+                                    let v_file = match VirtFile::create(self.ctx.clone(), &path)
+                                        .await
+                                    {
+                                        Ok(vf) => Arc::new(Mutex::new(vf)),
+                                        Err(e) => {
+                                            App::show_error_message(e, Duration::from_secs(2), tui);
+                                            *fs_state = FsState::Navigate;
+                                            tui.in_filesystem();
+                                            return;
+                                        }
+                                    };
 
                                     self.v_file = Some(v_file.clone());
                                     self.v_file_history.insert(path, v_file);
                                 }
                             }
+                        } else {
+                            return;
                         }
 
-                        // jump into the file
-                        *app_state = AppState::InContent(Default::default());
-                        tui.in_content_navi();
-                        // clear dialogue
+                        log::debug!("re-reading directory");
+                        // read the dir again
+                        let read_dir = match rfs::fs::read_dir(
+                            self.ctx.clone(),
+                            &self.fs_dirs.top().expect("fs dirs should not be empty").0,
+                        )
+                        .await
+                        {
+                            Ok(rd) => rd,
+                            Err(e) => {
+                                log::error!("Read dir error: {:?}", e);
+                                App::show_error_message(e, Duration::from_secs(2), tui);
+                                *fs_state = FsState::Navigate;
+                                tui.in_filesystem();
+                                return;
+                            }
+                        };
+
+                        tui.fs_widget.update(read_dir.clone());
+                        let p = self.fs_dirs.pop().expect("fs dirs should not be empty").0;
+                        self.fs_dirs.push((p, read_dir));
+
                         tui.fs_widget
                             .dialogue_box(Option::<(&str, &str, bool)>::None);
+
+                        *fs_state = FsState::Navigate;
+                        tui.in_filesystem();
                         return;
                     }
                     KeyCode::Backspace => {
                         buf.pop();
-                        // tui.fs_widget
-                        //     .dialogue_box(Some(("create file", &buf, false)));
                     }
                     KeyCode::Char(c) => {
                         buf.push(c);
-                        // tui.fs_widget
-                        //     .dialogue_box(Some(("create file", &buf, false)));
                     }
                     _ => (),
                 }
@@ -708,20 +768,42 @@ impl AppData {
                             // construct actual path to file
                             let path = match self.fs_dirs.top() {
                                 Some((dir, _)) => format!("{}/{}", dir, buf),
-                                None => buf.clone(),
+                                None => format!("./{}", buf),
                             };
 
                             match rfs::fs::create_dir(self.ctx.clone(), &path).await {
                                 Ok(_) => (),
-                                Err(e) => todo!(),
+                                Err(e) => {
+                                    log::error!("create dir error: {:?}", e);
+                                    App::show_error_message(
+                                        format!("{:?}", e),
+                                        Duration::from_secs(2),
+                                        tui,
+                                    );
+                                    tui.fs_widget
+                                        .dialogue_box(Option::<(&str, &str, bool)>::None);
+                                    *app_state = AppState::InFileSystem(Default::default());
+                                    tui.in_filesystem();
+                                    return;
+                                }
                             }
 
                             let read_dir = match rfs::fs::read_dir(self.ctx.clone(), &path).await {
                                 Ok(rd) => rd,
-                                Err(_) => todo!(),
+                                Err(e) => {
+                                    log::error!("Read dir error: {:?}", e);
+                                    App::show_error_message(
+                                        format!("{:?}", e),
+                                        Duration::from_secs(2),
+                                        tui,
+                                    );
+                                    tui.fs_widget
+                                        .dialogue_box(Option::<(&str, &str, bool)>::None);
+                                    *app_state = AppState::InFileSystem(Default::default());
+                                    tui.in_filesystem();
+                                    return;
+                                }
                             };
-
-                            self.fs_dirs.push((path, read_dir));
                         } else {
                             return;
                         }
@@ -730,15 +812,25 @@ impl AppData {
                         tui.fs_widget
                             .dialogue_box(Option::<(&str, &str, bool)>::None);
 
-                        let dir_path = self.fs_dirs.pop().unwrap().0;
+                        // read the dir again
+                        let read_dir = match rfs::fs::read_dir(
+                            self.ctx.clone(),
+                            &self.fs_dirs.top().unwrap().0,
+                        )
+                        .await
+                        {
+                            Ok(rd) => rd,
+                            Err(e) => {
+                                App::show_error_message(e, Duration::from_secs(2), tui);
+                                *app_state = AppState::InFileSystem(Default::default());
+                                tui.in_filesystem();
+                                return;
+                            }
+                        };
 
-                        let new_read_dir = rfs::fs::read_dir(self.ctx.clone(), &dir_path)
-                            .await
-                            .unwrap();
-
-                        self.fs_dirs.push((dir_path.clone(), new_read_dir.clone()));
-                        tui.fs_widget.update(new_read_dir);
-                        tui.fs_widget.select(Some(0));
+                        tui.fs_widget.update(read_dir.clone());
+                        let p = self.fs_dirs.pop().unwrap().0;
+                        self.fs_dirs.push((p, read_dir));
 
                         *app_state = AppState::InFileSystem(Default::default());
                         tui.in_filesystem();
@@ -747,13 +839,9 @@ impl AppData {
                     }
                     KeyCode::Backspace => {
                         buf.pop();
-                        // tui.fs_widget
-                        //     .dialogue_box(Some(("create dir", &buf, false)));
                     }
                     KeyCode::Char(c) => {
                         buf.push(c);
-                        // tui.fs_widget
-                        //     .dialogue_box(Some(("create dir", &buf, false)));
                     }
 
                     _ => (),
@@ -810,6 +898,38 @@ impl AppData {
 
                         self.unsaved_buf.clear();
                     }
+                    KeyCode::Char('w') => {
+                        let v_f = match &self.v_file {
+                            Some(vf) => vf.clone(),
+                            None => return,
+                        };
+
+                        let ev_tx = tui.event_tx.clone();
+
+                        tokio::spawn(async move {
+                            let mut update_channel = match v_f.lock().await.watch_chan().await {
+                                Ok(ch) => ch,
+                                Err(_) => return,
+                            };
+
+                            match update_channel.recv().await {
+                                Some(Ok((path, update_data))) => {
+                                    log::info!("file update received");
+                                    // update the content widget
+                                    ev_tx
+                                        .send(AppEvent::FileUpdate {
+                                            path,
+                                            upd: update_data,
+                                        })
+                                        .unwrap();
+                                }
+                                _ => return,
+                            };
+                        });
+
+                        tui.content_widget
+                            .set_notification(Some("file watch enabled"));
+                    }
 
                     _ => (),
                 }
@@ -834,19 +954,27 @@ impl AppData {
                             None => return,
                         };
 
-                        match self.cursor_pos {
-                            Some(offset) => {
-                                let mut lock = v_file.lock().await;
+                        let mut lock = v_file.lock().await;
 
+                        match self.unsaved_buf.len() {
+                            // do not update
+                            0 => (),
+                            _ => {
                                 let update = FileUpdate::Insert((
-                                    offset,
+                                    self.unsaved_offset,
                                     self.unsaved_buf.as_bytes().to_vec(),
                                 ));
 
                                 // TODO: handle err here
                                 lock.write_bytes(update).await.unwrap();
+                                let new_contents = std::str::from_utf8(lock.local_cache()).unwrap();
+
+                                self.content = Some(new_contents.to_string());
+                                self.unsaved_buf.clear();
+                                self.unsaved_offset =
+                                    tui.content_widget.cursor_offset().unwrap_or_default();
+                                tui.content_widget.set_contents(Some(new_contents));
                             }
-                            None => (),
                         }
 
                         // toggle insert mode
@@ -881,33 +1009,6 @@ impl AppData {
             // spawns a watch channel
             ContentState::Watch => {
                 //a ad
-
-                let v_f = match &self.v_file {
-                    Some(vf) => vf.clone(),
-                    None => return,
-                };
-
-                let ev_tx = tui.event_tx.clone();
-
-                tokio::spawn(async move {
-                    let mut update_channel = match v_f.lock().await.watch_chan().await {
-                        Ok(ch) => ch,
-                        Err(_) => return,
-                    };
-
-                    match update_channel.recv().await {
-                        Some(Ok((path, update_data))) => {
-                            // update the content widget
-                            ev_tx
-                                .send(AppEvent::FileUpdate {
-                                    path,
-                                    upd: update_data,
-                                })
-                                .unwrap();
-                        }
-                        _ => return,
-                    };
-                });
             }
 
             _ => unimplemented!(),

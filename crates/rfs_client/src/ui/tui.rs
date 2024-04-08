@@ -52,7 +52,7 @@ pub struct Tui {
     pub paste: bool,
 
     // stderr pipe
-    pub stderr_pipe: Arc<std::sync::Mutex<shh::ShhStderr>>,
+    pub stderr_pipe: Arc<std::sync::Mutex<dyn io::Read + Send + Sync + 'static>>,
 
     // widgets
     pub title_widget: TitleBar,
@@ -86,7 +86,7 @@ pub enum AppEvent {
     /// First event sent is init
     Init,
     Quit,
-    Error(String),
+    Error(Option<String>),
     Closed,
     Tick,
     Render,
@@ -140,7 +140,7 @@ impl Tui {
     pub fn new(
         tick_rate: f64,
         frame_rate: f64,
-        sh: Arc<std::sync::Mutex<shh::ShhStderr>>,
+        sh: Arc<std::sync::Mutex<dyn io::Read + Send + Sync + 'static>>,
     ) -> io::Result<Self> {
         let mut terminal = ratatui::Terminal::new(CrosstermBackend::new(std::io::stdout()))?;
         // terminal.clear()?;
@@ -241,7 +241,7 @@ impl Tui {
                                 }
                             }
                             Some(Err(e)) => {
-                                _event_tx.send(AppEvent::Error(e.to_string())).unwrap();
+                                _event_tx.send(AppEvent::Error(Some(e.to_string()))).unwrap();
                             }
                             None => {},
                         }
@@ -342,14 +342,11 @@ impl Tui {
         self.draw(|f| {
             let windows = UIWindows::from(f.borrow());
 
-            // Clear.render(area, buf)
-
             f.render_widget(title_widget, windows.title);
             f.render_widget(fs_widget, windows.filesystem);
             f.render_widget(content_widget, windows.content);
             f.render_widget(commands_widget, windows.commands);
             f.render_widget(logs_widget, windows.logs);
-            // we are left with the content window, which is not implemented yet
         })?;
 
         Ok(())
@@ -360,10 +357,9 @@ impl Tui {
         self.content_widget.focus(false);
         self.commands_widget.clear();
         self.commands_widget.add([
-            ("ENTER", "enter insert mode"),
-            ("LEFT", "filesystem tree"),
-            ("arrow keys", "navigate"),
-            ("w", "watch file for changes"),
+            ("ESC", "exit"),
+            ("ENTER", "enter filesystem browse"),
+            ("RIGHT", "go to content"),
         ]);
     }
 
@@ -371,11 +367,8 @@ impl Tui {
         self.content_widget.focus(true);
         self.fs_widget.focus(false);
         self.commands_widget.clear();
-        self.commands_widget.add([
-            ("ESC", "exit"),
-            ("ENTER", "enter filesystem browse"),
-            ("RIGHT", "go to content"),
-        ]);
+        self.commands_widget
+            .add([("ENTER", "enter content"), ("LEFT", "filesystem tree")]);
     }
 
     pub fn in_filesystem(&mut self) {
@@ -398,10 +391,10 @@ impl Tui {
         self.content_widget.focus(true);
         self.commands_widget.clear();
         self.commands_widget.add([
-            ("ESC", "go to content"),
+            ("ESC", "exit content"),
             ("ENTER", "enter insert mode"),
             ("arrow keys", "navigate"),
-            // ("LEFT", "go to filesystem"),
+            ("w", "watch file for changes"),
         ]);
     }
 
@@ -529,7 +522,7 @@ mod tests {
 
         let (mut fs_tree, num_entries) = {
             // we are manually creating virt objects here
-            const BASE_PATH: &str = "./empty_dir/";
+            const BASE_PATH: &str = ".";
 
             let cur_dir = VirtDirEntry {
                 path: BASE_PATH.to_string(),
@@ -563,7 +556,7 @@ mod tests {
         let mut content_widget = ContentWindow::new();
         content_widget.set_cursor_pos(Some((0, 0)));
         // content_widget.set_notification(Some("hello world from the notifications!"));
-        // content_widget.set_error_message(Some("this is an error message AHHHHH"));
+        content_widget.set_error_message(Some("this is an error message AHHHHH"));
         let mut content_highlight_offset = 0;
 
         let mut focus_toggle = false;

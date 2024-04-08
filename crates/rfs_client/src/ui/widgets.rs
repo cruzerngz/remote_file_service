@@ -137,10 +137,22 @@ impl Widget for FsTree {
                 .enumerate()
                 .map(|(idx, en)| {
                     let mut contents = if en.is_file() {
-                        Span::raw(en.path().to_str().expect("invalid path").to_string())
+                        Span::raw(
+                            en.path()
+                                .file_name()
+                                .unwrap()
+                                .to_str()
+                                .expect("invalid path")
+                                .to_string(),
+                        )
                     } else {
                         Span::styled(
-                            en.path().to_str().expect("invalid path").to_string(),
+                            en.path()
+                                .file_name()
+                                .unwrap()
+                                .to_str()
+                                .expect("invalid path")
+                                .to_string(),
                             Style::new().green().bold(),
                         )
                     };
@@ -150,31 +162,6 @@ impl Widget for FsTree {
                 .collect::<Vec<_>>(),
 
             (Some(dirs), Some(mut selection)) => {
-                // let all_lines = dirs
-                //     .iter()
-                //     .enumerate()
-                //     .map(|(idx, line)| {
-                //         let mut contents = if line.is_file() {
-                //             Span::raw(line.path().to_str().expect("invalid path").to_string())
-                //         } else {
-                //             Span::styled(
-                //                 line.path().to_str().expect("invalid path").to_string(),
-                //                 Style::new().green().bold(),
-                //             )
-                //         };
-
-                //         // highlight selection
-                //         if selection == idx {
-                //             contents = contents.reversed()
-                //         }
-
-                //         Line::from(contents)
-                //     })
-                //     .collect::<Vec<_>>();
-
-                // let shown_lines =
-                //     fit_lines_to_window(all_lines, selection as u16, area.height, true, 2);
-
                 let lines: Box<dyn Iterator<Item = _>> = match dirs.len()
                     > area.height as usize - FRAME_BORDER_LINES
                     && selection + 1 > area.height as usize - FRAME_BORDER_LINES
@@ -196,11 +183,23 @@ impl Widget for FsTree {
                 lines
                     .enumerate()
                     .map(|(idx, en)| {
+                        // let x = en.path().file_name().unwrap().to_str();
+
                         let mut contents = if en.is_file() {
-                            Span::raw(en.path().to_str().expect("invalid path"))
+                            Span::raw(
+                                en.path()
+                                    .file_name()
+                                    .unwrap()
+                                    .to_str()
+                                    .expect("invalid path"),
+                            )
                         } else {
                             Span::styled(
-                                en.path().to_str().expect("invalid path"),
+                                en.path()
+                                    .file_name()
+                                    .unwrap()
+                                    .to_str()
+                                    .expect("invalid path"),
                                 Style::new().green().bold(),
                             )
                         };
@@ -233,7 +232,7 @@ impl Widget for FsTree {
                     )
                     .border_style(match self.focused {
                         true => Style::new().white(),
-                        false => Style::new().gray(),
+                        false => Style::new().gray().dim(),
                     }),
             )
             .wrap(Wrap { trim: false });
@@ -385,7 +384,7 @@ impl Widget for ContentWindow {
 
         let border_style = match self.focused {
             true => Style::new().white(),
-            false => Style::new().gray(),
+            false => Style::new().gray().dim(),
         };
         let border = DEFAULT_BLOCK.border_style(border_style);
 
@@ -518,20 +517,19 @@ impl Widget for ContentWindow {
             let notif_block = DEFAULT_BLOCK
                 .borders(Borders::ALL)
                 .border_style(Style::new().light_cyan())
-                .title(Title::from("notification".white().bold()))
+                .title(Title::from(notif.white().bold()))
                 .title_alignment(ratatui::layout::Alignment::Left);
 
             notif_block.render(area, buf);
         }
 
-        // errors are written to an inset pop-up window
         if let Some(err_msg) = self.error_message {
             // error message takes up half the screen in each dimension
             let err_rect = centered_rect(50, 50, area);
 
             Clear.render(err_rect, buf);
 
-            let popup = Paragraph::new(err_msg.bold().light_cyan().reversed())
+            let popup = Paragraph::new(err_msg.bold())
                 .block(
                     DEFAULT_BLOCK
                         .borders(Borders::ALL)

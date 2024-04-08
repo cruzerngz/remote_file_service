@@ -55,6 +55,10 @@ pub struct ClientArgs {
     /// and returns failure statistics.
     #[clap(long)]
     pub test: bool,
+
+    /// Send logs to a log file.
+    #[clap(long)]
+    pub log_to_file: bool,
 }
 
 #[derive(Clone, Copy, Debug, clap::ValueEnum)]

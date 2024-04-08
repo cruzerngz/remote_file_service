@@ -3,7 +3,11 @@ mod data_collection;
 mod test;
 mod ui;
 
-use std::{io, net::SocketAddrV4, sync::Arc};
+use std::{
+    io::{self, Read, Write},
+    net::SocketAddrV4,
+    sync::{Arc, Mutex},
+};
 
 use args::ClientArgs;
 use clap::Parser;
@@ -114,8 +118,53 @@ async fn main() -> io::Result<()> {
         }
     };
 
-    let mut app = ui::App::new(manager, 50.0, 50.0, sh);
+    let stderr_pipe: Box<dyn io::Read + Send + Sync + 'static> = match args.log_to_file {
+        true => {
+            let io_pipe = IOPipe::new(
+                Box::new(shh::stderr()?),
+                Box::new(
+                    std::fs::File::options()
+                        .create(true)
+                        .append(true)
+                        .open(format!("{}.log", env!("CARGO_BIN_NAME")))?,
+                ),
+            );
+
+            Box::new(io_pipe)
+        }
+        false => Box::new(shh::stderr()?),
+    };
+
+    let frame_rate = 50.0;
+    let mut app = ui::App::new(manager, frame_rate, frame_rate, stderr_pipe);
     app.run().await?;
 
     return Ok(());
+}
+
+///
+struct IOPipe {
+    // usually a file
+    target: Box<dyn io::Write + Send + Sync + 'static>,
+    source: Box<dyn io::Read + Send + Sync + 'static>,
+}
+
+impl io::Read for IOPipe {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        let res = self.source.read(buf)?;
+
+        let buf_copy = buf[..res].to_vec();
+        self.target.write_all(buf_copy.as_slice())?;
+
+        Ok(res)
+    }
+}
+
+impl IOPipe {
+    pub fn new(
+        source: Box<dyn io::Read + Send + Sync + 'static>,
+        target: Box<dyn io::Write + Send + Sync + 'static>,
+    ) -> Self {
+        Self { source, target }
+    }
 }

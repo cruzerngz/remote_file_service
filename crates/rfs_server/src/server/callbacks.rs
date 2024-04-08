@@ -46,6 +46,8 @@ impl RegisteredFileUpdates {
 
         let callbacks = self.lookup.remove(path)?;
 
+        log::debug!("callback targets: {:?}", callbacks);
+
         let num_targets = callbacks.len();
 
         let sock = Arc::new(

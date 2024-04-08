@@ -369,7 +369,7 @@ impl VirtFile {
         .await?
         .map_err(|e| io::Error::from(e))?;
 
-        let (tx, rx) = mpsc::channel(1);
+        let (tx, rx) = mpsc::channel(3);
 
         let mut ctx_clone = self.ctx.clone();
         let file_path = self.as_path();
@@ -378,14 +378,13 @@ impl VirtFile {
             let resp = match ctx_clone.listen(&ret_sock).await {
                 Ok(r) => r,
                 Err(e) => {
+                    log::error!("watch callback failed: {:?}", e);
                     tx.send(Err(io::Error::from(e)))
                         .await
                         .map_err(|e| io::Error::new(io::ErrorKind::Other, e));
                     return;
                 }
             };
-
-            log::debug!("watch triggered");
 
             let update: FileUpdate = match deserialize_packed(&resp)
                 .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, "deserialization failed"))
@@ -399,7 +398,7 @@ impl VirtFile {
                 }
             };
 
-            tx.send(Ok((file_path, update)));
+            tx.send(Ok((file_path, update))).await.unwrap();
         });
 
         Ok(rx)
@@ -605,6 +604,8 @@ impl From<VirtIOErr> for io::Error {
 }
 mod testing {
     use std::{fs, io, path::PathBuf};
+    use super::*;
+
 
     fn test() {
         let stuff = fs::read_dir("path").unwrap();
@@ -624,5 +625,16 @@ mod testing {
         p.push("next_dir");
 
         println!("{:?}", p.as_path());
+    }
+
+    #[test]
+    fn test_virt_dir_entry() {
+
+        let dir_entry = VirtDirEntry {
+            path: "top_dir/next_dir".to_string(),
+            file: todo!(),
+        };
+
+
     }
 }
