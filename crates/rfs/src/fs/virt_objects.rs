@@ -459,6 +459,7 @@ impl VirtOpenOptions
         self
     }
 
+    #[allow(unused_variables)]
     pub fn open<P: AsRef<Path>>(&self, path: P) -> io::Result<VirtFile> {
         match (
             self.read,
@@ -496,10 +497,9 @@ impl VirtOpenOptions
                 todo!()
             }
 
+            #[allow(unreachable_patterns)]
             _ => todo!(),
         }
-
-        todo!()
     }
 }
 

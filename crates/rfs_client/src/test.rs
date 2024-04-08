@@ -6,6 +6,7 @@ use rfs::interfaces::*;
 use rfs::middleware::ContextManager;
 
 /// Test various stuff out
+#[allow(unused)]
 pub async fn test_mode(mut ctx: ContextManager) -> io::Result<()> {
     log::info!("testing remote invocations");
     let _ = SimpleOpsClient::say_hello(&mut ctx, "new configuration".to_string())

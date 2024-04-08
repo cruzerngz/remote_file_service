@@ -39,7 +39,7 @@ the following protocols/stuff is custom:
 - proc-macro boilerplate code generation, inspired by [`tarpc`](https://github.com/google/tarpc)
 
 
-## Common errors
+## Known issues
 
 ### Incorrect dispatch routing
 There may be times when dispatch matches the method signature for a method early
@@ -51,3 +51,10 @@ This can happen if any method signature is a prefix of another, such as:
 ```
 
 If this occurs, check that the [signature collision unit test](./crates/rfs/src/interfaces.rs) passes.
+
+### Full path displayed in filesystem tree
+When `rfs_server` is run on a windows machine and connected to from a unix machine,
+the file paths in the filesystem tree window are displayed in full.
+
+This is because unix paths do not take into account windows path delimiters `\`,
+while windows paths take into account both types `/` and `\`.

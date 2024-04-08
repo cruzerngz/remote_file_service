@@ -101,6 +101,7 @@ pub enum MiddlewareData {
 
 /// Dispatcher context, injected into each remote implementation.
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct DispatcherContext {
     source: SocketAddrV4,
 }
