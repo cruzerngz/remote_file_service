@@ -248,7 +248,7 @@ impl VirtFile {
 
         Ok(Self {
             ctx,
-            metadata_local: todo!(),
+            metadata_local: Default::default(),
             path: PathBuf::from(path.as_ref()),
             local_buf: Default::default(),
             read_info: Default::default(),
