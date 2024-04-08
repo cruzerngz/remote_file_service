@@ -895,3 +895,69 @@ impl TransmissionProtocol for FaultyHandshakeProto {
         return Ok((rx_source, rx_data));
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use serde::{Deserialize, Serialize};
+
+    use crate::{RemoteMethodSignature, RemotelyInvocable};
+
+    use super::*;
+
+    #[derive(Debug, Serialize, Deserialize)]
+    struct Packet {
+        inner: Vec<u8>,
+    }
+
+    impl RemoteMethodSignature for Packet {
+        fn remote_method_signature() -> &'static [u8] {
+            "Packet".as_bytes()
+        }
+    }
+
+    /// Check out the bug during message transmissions.
+    /// Transmissions with a '#' return an error.
+    #[tokio::test]
+    async fn test_handshake_proto() {
+        let packet = Packet {
+            inner: "hello # world".as_bytes().to_vec(),
+        };
+
+        let bytes = packet.invoke_bytes();
+
+        let proto = HandshakeProto;
+        let proto_clone = proto.clone();
+
+        let send_sock = UdpSocket::bind(SocketAddrV4::new(Ipv4Addr::LOCALHOST, 0))
+            .await
+            .unwrap();
+        let recv_sock = UdpSocket::bind(SocketAddrV4::new(Ipv4Addr::LOCALHOST, 0))
+            .await
+            .unwrap();
+
+        let send_target = sockaddr_to_v4(recv_sock.local_addr().unwrap()).unwrap();
+
+        tokio::spawn(async move {
+            proto_clone
+                .send_bytes(
+                    &send_sock,
+                    send_target,
+                    &bytes,
+                    Duration::from_millis(200),
+                    10,
+                )
+                .await;
+        });
+
+        let (_, data) = proto
+            .recv_bytes(&recv_sock, Duration::from_millis(100), 10)
+            .await
+            .unwrap();
+
+        let res = Packet::process_invocation(&data);
+
+        println!("transmission result: {:?}", res);
+
+        return;
+    }
+}
