@@ -14,6 +14,7 @@ use rfs::interfaces::FileUpdate;
 use rfs::{fs::VirtReadDir, middleware::ContextManager, state_transitions};
 use tokio::sync::Mutex;
 
+use super::contents;
 use super::tui::{AppEvent, FocusedWidget, Tui};
 
 const FS_CREATE_FILE: char = 'f';
@@ -953,10 +954,53 @@ impl AppData {
         match cont_state {
             ContentState::Navigate => {
                 match app_ev.code {
+                    // write any delete changes to file
+                    // unlike insert writes, this overwrites the entire file.
                     KeyCode::Esc => {
+                        log::debug!("writing changes to file");
+                        let v_f = match &self.v_file {
+                            Some(vf) => vf.clone(),
+                            None => return,
+                        };
+
+                        let mut lock = v_f.lock().await;
+
+                        let contents = match &self.content {
+                            Some(c) => c,
+                            None => return,
+                        };
+
+                        // if contents have changed, write
+                        match contents.as_bytes() == lock.local_cache() {
+                            true => (),
+                            false => {
+                                let update = FileUpdate::Overwrite(contents.as_bytes().to_vec());
+                                match lock.write_bytes(update).await {
+                                    Ok(_) => (),
+                                    Err(e) => {
+                                        log::error!("write error: {:?}", e);
+                                        App::show_error_message(e, Duration::from_secs(2), tui);
+                                    }
+                                }
+                            }
+                        }
+
                         *app_state = AppState::OnContent;
                         tui.on_content();
                     }
+
+                    // del char
+                    KeyCode::Delete => {
+                        match (&mut self.content, self.cursor_pos) {
+                            (Some(content), Some(pos)) => {
+                                content.remove(pos);
+                                tui.content_widget.set_contents(Some(&content));
+                            }
+                            // do nothing
+                            _ => (),
+                        }
+                    }
+
                     // navi
                     KeyCode::Up => {
                         tui.content_widget.cursor_up();

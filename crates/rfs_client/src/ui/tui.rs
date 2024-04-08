@@ -393,6 +393,7 @@ impl Tui {
         self.commands_widget.add([
             ("ESC", "exit content"),
             ("ENTER", "enter insert mode"),
+            ("DEL", "delete a character"),
             ("arrow keys", "navigate"),
             ("w", "watch file for changes"),
         ]);
