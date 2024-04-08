@@ -2,27 +2,21 @@
 
 use std::{
     borrow::Cow,
-    clone,
     error::Error,
     fmt::{Debug, Display},
-    fs::{self, DirEntry, FileTimes},
-    io::{self, Read},
+    fs::{self, DirEntry},
+    io::{self},
     net::{SocketAddr, SocketAddrV4},
     ops::Deref,
-    path::{Iter, Path, PathBuf},
-    sync::Arc,
+    path::{Path, PathBuf},
     time::SystemTime,
 };
 
-use futures::{ready, AsyncRead, AsyncWrite, FutureExt, TryFutureExt};
-use rfs_core::{
-    deserialize, deserialize_packed,
-    middleware::{ContextManager, TransmissionProtocol},
-};
+use rfs_core::{deserialize_packed, middleware::ContextManager};
 use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc;
 
-use crate::interfaces::{CallbackOpsClient, FileUpdate, FileWriteMode, PrimitiveFsOpsClient};
+use crate::interfaces::{CallbackOpsClient, FileUpdate, PrimitiveFsOpsClient};
 
 /// Errors for virtual IO
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -57,6 +51,7 @@ pub enum VirtIOErr {
 /// For simplicity, symlinks residing on the remote will not be treated as files
 /// and they will be ignored.
 #[derive(Clone, Debug)]
+#[allow(dead_code)]
 pub struct VirtFile {
     ctx: ContextManager,
     path: PathBuf,
@@ -72,6 +67,7 @@ pub struct VirtFile {
 }
 
 #[derive(Clone, Debug, Default)]
+#[allow(dead_code)]
 struct FileReadMeta {
     /// Current byte position
     pos: usize,
@@ -84,6 +80,7 @@ struct FileReadMeta {
 ///
 /// Attempts to mirror [std::fs::OpenOptions].
 #[derive(Clone, Debug)]
+#[allow(dead_code)]
 pub struct VirtOpenOptions {
     ctx: ContextManager,
     create: bool,
@@ -116,6 +113,7 @@ pub struct VirtReadDir {
 
 /// Virtual file metadata
 #[derive(Clone, Debug, Default)]
+#[allow(dead_code)]
 pub struct VirtMetadata {
     /// Last file access time
     accessed: Option<SystemTime>,
@@ -128,6 +126,7 @@ pub struct VirtMetadata {
 
 /// File permissions (rwx)
 #[derive(Clone, Debug, Default)]
+#[allow(dead_code)]
 pub struct VirtPermissions {
     read: (bool, bool, bool),
     write: (bool, bool, bool),
@@ -234,7 +233,7 @@ impl VirtFile {
     ///
     /// Attempts to mirror [std::fs::File::create]
     pub async fn create<P: AsRef<Path>>(mut ctx: ContextManager, path: P) -> std::io::Result<Self> {
-        let res = PrimitiveFsOpsClient::create(
+        let _res = PrimitiveFsOpsClient::create(
             &mut ctx,
             path.as_ref()
                 .to_str()
@@ -310,7 +309,7 @@ impl VirtFile {
     pub async fn write_bytes(&mut self, data: FileUpdate) -> io::Result<usize> {
         let path = self.as_path();
 
-        let res = PrimitiveFsOpsClient::write_bytes(&mut self.ctx, path, data.clone())
+        let _res = PrimitiveFsOpsClient::write_bytes(&mut self.ctx, path, data.clone())
             .await
             .map_err(|e| io::Error::from(e))?;
 
@@ -327,7 +326,7 @@ impl VirtFile {
         // this is the return socket the remote will send callbacks to
         let ret_sock = self.ctx.generate_socket().await?;
 
-        let reg_resp = CallbackOpsClient::register_file_update(
+        let _ = CallbackOpsClient::register_file_update(
             &mut self.ctx,
             self.path
                 .to_str()
@@ -342,7 +341,7 @@ impl VirtFile {
         log::debug!("watch triggered");
 
         let update: FileUpdate = deserialize_packed(&resp)
-            .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, "deserialization failed"))?;
+            .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "deserialization failed"))?;
 
         self.local_buf = update.clone().update_file(&self.local_buf);
 
@@ -357,7 +356,7 @@ impl VirtFile {
         // this is the return socket the remote will send callbacks to
         let ret_sock = self.ctx.generate_socket().await?;
 
-        let reg_resp = CallbackOpsClient::register_file_update(
+        let _ = CallbackOpsClient::register_file_update(
             &mut self.ctx.clone(),
             self.path
                 .to_str()
@@ -380,19 +379,21 @@ impl VirtFile {
                     log::error!("watch callback failed: {:?}", e);
                     tx.send(Err(io::Error::from(e)))
                         .await
-                        .map_err(|e| io::Error::new(io::ErrorKind::Other, e));
+                        .map_err(|e| io::Error::new(io::ErrorKind::Other, e))
+                        .unwrap();
                     return;
                 }
             };
 
             let update: FileUpdate = match deserialize_packed(&resp)
-                .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, "deserialization failed"))
+                .map_err(|_e| io::Error::new(io::ErrorKind::InvalidData, "deserialization failed"))
             {
                 Ok(upd) => upd,
                 Err(e) => {
                     tx.send(Err(e))
                         .await
-                        .map_err(|e| io::Error::new(io::ErrorKind::Other, e));
+                        .map_err(|e| io::Error::new(io::ErrorKind::Other, e))
+                        .unwrap();
                     return;
                 }
             };
@@ -601,16 +602,12 @@ impl From<VirtIOErr> for io::Error {
         }
     }
 }
-mod testing {
-    use rfs_core::{
-        middleware::{DefaultProto, HandshakeProto},
-        RemotelyInvocable,
-    };
 
-    use crate::interfaces::{PrimitiveFsOps, PrimitiveFsOpsReadAll};
+#[allow(unused)]
+mod testing {
 
     use super::*;
-    use std::{fs, io, net::Ipv4Addr, path::PathBuf};
+    use std::fs;
 
     fn test() {
         let stuff = fs::read_dir("path").unwrap();
