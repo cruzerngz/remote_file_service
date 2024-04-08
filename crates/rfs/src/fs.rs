@@ -1,12 +1,9 @@
 //! Virtual file module
-#![allow(unused)]
 
 mod virt_objects;
 
 use std::{io, path::Path};
 
-use futures::AsyncReadExt;
-use rfs_core::middleware::TransmissionProtocol;
 pub use virt_objects::*;
 
 use crate::interfaces::PrimitiveFsOpsClient;
@@ -112,11 +109,4 @@ pub async fn remove_file<P: AsRef<Path>>(
     .map_err(|e| io::Error::from(e))
 }
 
-mod testing {
-
-    use std::fs;
-
-    fn asd() {
-        fs::read_dir("");
-    }
-}
+mod testing {}

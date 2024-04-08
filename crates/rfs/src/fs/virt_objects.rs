@@ -1,6 +1,5 @@
 //! Virtual (remote) object and related definitions
 
-#![allow(unused)]
 use std::{
     borrow::Cow,
     clone,
@@ -603,9 +602,15 @@ impl From<VirtIOErr> for io::Error {
     }
 }
 mod testing {
-    use std::{fs, io, path::PathBuf};
-    use super::*;
+    use rfs_core::{
+        middleware::{DefaultProto, HandshakeProto},
+        RemotelyInvocable,
+    };
 
+    use crate::interfaces::{PrimitiveFsOps, PrimitiveFsOpsReadAll};
+
+    use super::*;
+    use std::{fs, io, net::Ipv4Addr, path::PathBuf};
 
     fn test() {
         let stuff = fs::read_dir("path").unwrap();
@@ -629,12 +634,9 @@ mod testing {
 
     #[test]
     fn test_virt_dir_entry() {
-
         let dir_entry = VirtDirEntry {
             path: "top_dir/next_dir".to_string(),
             file: todo!(),
         };
-
-
     }
 }

@@ -652,7 +652,66 @@ impl AppData {
                     *fs_state = FsState::CreateDir(String::new());
                     tui.in_filesystem_create("create dir");
                 }
-                KeyCode::Char(FS_DELETE) => {}
+                KeyCode::Char(FS_DELETE) => {
+                    let top_dir_entry = self.fs_dirs.top().cloned();
+
+                    let dir_entry = match &top_dir_entry {
+                        Some((dir, read_dir)) => match read_dir.get(self.filesystem_pos) {
+                            Some(entry) => entry,
+                            None => return,
+                        },
+                        None => return,
+                    };
+
+                    let path = dir_entry.path.clone();
+                    match dir_entry.is_file() {
+                        true => match rfs::fs::remove_file(self.ctx.clone(), &path).await {
+                            Ok(_) => {
+                                App::show_notification(
+                                    format!("deleted file: {}", path),
+                                    Duration::from_secs(2),
+                                    tui,
+                                );
+                            }
+                            Err(e) => {
+                                log::error!("remove file error: {:?}", e);
+                                App::show_error_message(e, Duration::from_secs(2), tui);
+                                return;
+                            }
+                        },
+                        false => match rfs::fs::remove_dir(self.ctx.clone(), &path).await {
+                            Ok(_) => {
+                                App::show_notification(
+                                    format!("deleted dir: {}", path),
+                                    Duration::from_secs(2),
+                                    tui,
+                                );
+                            }
+                            Err(e) => {
+                                log::error!("remove dir error: {:?}", e);
+                                App::show_error_message(e, Duration::from_secs(2), tui);
+                            }
+                        },
+                    }
+
+                    let read_dir =
+                        match rfs::fs::read_dir(self.ctx.clone(), &self.fs_dirs.top().unwrap().0)
+                            .await
+                        {
+                            Ok(rd) => rd,
+                            Err(e) => {
+                                log::error!("Read dir error: {:?}", e);
+                                App::show_error_message(e, Duration::from_secs(2), tui);
+                                return;
+                            }
+                        };
+
+                    tui.fs_widget.update(read_dir.clone());
+                    let p = self.fs_dirs.pop().expect("fs dirs should not be empty").0;
+                    self.fs_dirs.push((p, read_dir));
+
+                    tui.fs_widget.select(Some(self.filesystem_pos));
+                }
 
                 _ => (),
             },

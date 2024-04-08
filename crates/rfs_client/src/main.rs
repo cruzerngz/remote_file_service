@@ -4,9 +4,9 @@ mod test;
 mod ui;
 
 use std::{
-    io::{self, Read, Write},
+    io::{self, Write},
     net::SocketAddrV4,
-    sync::{Arc, Mutex},
+    sync::Arc,
 };
 
 use args::ClientArgs;
