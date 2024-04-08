@@ -14,3 +14,6 @@ async-trait = { workspace = true }
 log = { workspace = true }
 futures = { workspace = true }
 tokio = { workspace = true }
+
+# for testing
+pretty_env_logger = { workspace = true }
