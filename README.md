@@ -1,6 +1,10 @@
 # remote_file_service
 remote file access using RPC
 
+<p align="center">
+    <img src="./walkaround.gif" width=75%>
+</p>
+
 ## Prerequisites
 - Install [rust](https://rustup.rs)
 - Install [docker](https://docker.com) or [podman](https://podman.io), for `cross`
