@@ -2,7 +2,7 @@
 remote file access using RPC
 
 <p align="center">
-    <img src="./walkaround.gif" width=75%>
+    <img src="./walkaround.gif" width=95%>
 </p>
 
 ## Prerequisites
